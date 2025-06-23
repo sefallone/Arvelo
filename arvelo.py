@@ -175,45 +175,48 @@ def mostrar_formulario_pago():
     # Obtener lista de inquilinos
     inquilinos = obtener_inquilinos()
     
-    # Selector de inquilino
-    inquilino_seleccionado = st.selectbox(
-        "Seleccione Inquilino*",
-        options=inquilinos,
-        key="select_inquilino"
-    )
-    
-    # Obtener locales asociados al inquilino seleccionado
-    locales = obtener_locales_por_inquilino(inquilino_seleccionado) if inquilino_seleccionado else []
-    
-    if not locales:
-        st.warning("Este inquilino no tiene locales asignados")
-        return
-    
-    # Selector de local
-    local_seleccionado = st.selectbox(
-        "Seleccione Local*",
-        options=locales,
-        key="select_local"
-    )
-    
-    # Mostrar información del local seleccionado
-    info_local = obtener_info_local(local_seleccionado)
-    if info_local is not None:
-        st.text(f"Planta: {info_local['planta']}")
-        st.text(f"Ramo del negocio: {info_local['ramo_negocio']}")
-        st.text(f"Canon: ${info_local['canon']:.2f}")
-        st.text(f"Contrato: {info_local['contrato']}")
-    
-    # Formulario de registro de pago CON BOTÓN DE SUBMIT CORRECTO
-    with st.form("form_pago"):
+    # Formulario principal CON LA ESTRUCTURA CORRECTA
+    with st.form(key='pago_form'):
+        # Selector de inquilino
+        inquilino_seleccionado = st.selectbox(
+            "Seleccione Inquilino*",
+            options=inquilinos,
+            key="select_inquilino"
+        )
+        
+        # Obtener locales asociados al inquilino seleccionado
+        locales = obtener_locales_por_inquilino(inquilino_seleccionado) if inquilino_seleccionado else []
+        
+        if not locales:
+            st.warning("Este inquilino no tiene locales asignados")
+            st.stop()  # Detiene la ejecución si no hay locales
+        
+        # Selector de local
+        local_seleccionado = st.selectbox(
+            "Seleccione Local*",
+            options=locales,
+            key="select_local"
+        )
+        
+        # Mostrar información del local seleccionado
+        info_local = obtener_info_local(local_seleccionado)
+        if info_local is not None:
+            st.text(f"Planta: {info_local['planta']}")
+            st.text(f"Ramo del negocio: {info_local['ramo_negocio']}")
+            st.text(f"Canon: ${info_local['canon']:.2f}")
+            st.text(f"Contrato: {info_local['contrato']}")
+        
+        # Campos del formulario
         fecha_pago = st.date_input("Fecha de Pago*", datetime.now())
         mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="2025-06")
         monto = st.number_input("Monto Pagado*", min_value=0.0, value=float(info_local['canon']) if info_local else 0.0)
         estado = st.selectbox("Estado*", ["Pagado", "Parcial"])
         observaciones = st.text_area("Observaciones")
         
-        # BOTÓN DE SUBMIT CORREGIDO
+        # BOTÓN DE SUBMIT CORRECTO (parte esencial del formulario)
         submitted = st.form_submit_button("💾 Guardar Pago")
+        
+        # Lógica al enviar el formulario
         if submitted:
             if not mes_abonado:
                 st.error("Debe especificar el mes abonado")
@@ -228,9 +231,7 @@ def mostrar_formulario_pago():
                     observaciones
                 ):
                     st.success("✅ Pago registrado exitosamente!")
-                    st.balloons()
-
-# --- APLICACIÓN PRINCIPAL --- #
+                    st.balloons()# --- APLICACIÓN PRINCIPAL --- #
 def main():
     st.set_page_config(
         page_title="Dashboard de Pagos Arvelo",
