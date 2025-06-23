@@ -1,8 +1,4 @@
-streamlit
-pandas
-numpy
-matplotlib
-openpyxl
-seaborn
-sqlite3
-datetime
+streamlit==1.32.2
+pandas==2.1.4
+sqlite3==2.6.0  # (Normalmente viene incluido en Python, pero lo listamos por claridad)
+plotly==5.18.0   # (Opcional, para gráficos interactivos)
