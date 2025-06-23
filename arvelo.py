@@ -7,7 +7,7 @@ import os
 
 # --- CONFIGURACIÓN DE LA BASE DE DATOS --- #
 def get_db_connection():
-    """Crea una conexión a la base de datos SQLite con permisos de escritura"""
+    """Crea una conexión a la base de datos SQLite"""
     temp_dir = tempfile.gettempdir()
     db_path = os.path.join(temp_dir, "pagos_arvelo.db")
     return sqlite3.connect(db_path, check_same_thread=False)
@@ -167,43 +167,6 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
     finally:
         conn.close()
 
-def obtener_morosos():
-    """Obtiene la lista de inquilinos morosos"""
-    conn = get_db_connection()
-    df = pd.read_sql('''
-        SELECT 
-            numero_local, 
-            inquilino, 
-            canon,
-            COUNT(*) as meses_pendientes,
-            SUM(canon) as deuda_total
-        FROM pagos
-        WHERE estado = 'Pendiente'
-        GROUP BY numero_local, inquilino, canon
-        ORDER BY deuda_total DESC
-    ''', conn)
-    conn.close()
-    return df
-
-def obtener_historial_pagos():
-    """Obtiene el historial completo de pagos"""
-    conn = get_db_connection()
-    df = pd.read_sql('''
-        SELECT 
-            numero_local,
-            inquilino,
-            fecha_pago,
-            mes_abonado,
-            monto,
-            estado,
-            observaciones
-        FROM pagos
-        WHERE estado IN ('Pagado', 'Parcial')
-        ORDER BY fecha_pago DESC
-    ''', conn)
-    conn.close()
-    return df
-
 # --- INTERFAZ DE USUARIO --- #
 def mostrar_formulario_pago():
     """Muestra el formulario de registro de pagos con filtrado dinámico"""
@@ -212,16 +175,11 @@ def mostrar_formulario_pago():
     # Obtener lista de inquilinos
     inquilinos = obtener_inquilinos()
     
-    # Selector de inquilino con estado en session_state
-    if 'inquilino_seleccionado' not in st.session_state:
-        st.session_state.inquilino_seleccionado = inquilinos[0] if inquilinos else None
-    
+    # Selector de inquilino
     inquilino_seleccionado = st.selectbox(
         "Seleccione Inquilino*",
         options=inquilinos,
-        index=0,
-        key="select_inquilino",
-        on_change=lambda: st.session_state.update({"local_seleccionado": None})
+        key="select_inquilino"
     )
     
     # Obtener locales asociados al inquilino seleccionado
@@ -231,14 +189,10 @@ def mostrar_formulario_pago():
         st.warning("Este inquilino no tiene locales asignados")
         return
     
-    # Selector de local con estado en session_state
-    if 'local_seleccionado' not in st.session_state:
-        st.session_state.local_seleccionado = locales[0] if locales else None
-    
+    # Selector de local
     local_seleccionado = st.selectbox(
         "Seleccione Local*",
         options=locales,
-        index=0,
         key="select_local"
     )
     
@@ -250,15 +204,17 @@ def mostrar_formulario_pago():
         st.text(f"Canon: ${info_local['canon']:.2f}")
         st.text(f"Contrato: {info_local['contrato']}")
     
-    # Formulario de registro de pago
-    with st.form("form_pago", clear_on_submit=True):
+    # Formulario de registro de pago CON BOTÓN DE SUBMIT CORRECTO
+    with st.form("form_pago"):
         fecha_pago = st.date_input("Fecha de Pago*", datetime.now())
         mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="2025-06")
         monto = st.number_input("Monto Pagado*", min_value=0.0, value=float(info_local['canon']) if info_local else 0.0)
         estado = st.selectbox("Estado*", ["Pagado", "Parcial"])
         observaciones = st.text_area("Observaciones")
         
-        if st.form_submit_button("💾 Guardar Pago"):
+        # BOTÓN DE SUBMIT CORREGIDO
+        submitted = st.form_submit_button("💾 Guardar Pago")
+        if submitted:
             if not mes_abonado:
                 st.error("Debe especificar el mes abonado")
             else:
@@ -273,45 +229,6 @@ def mostrar_formulario_pago():
                 ):
                     st.success("✅ Pago registrado exitosamente!")
                     st.balloons()
-
-def mostrar_morosos():
-    """Muestra el reporte de morosidad"""
-    st.subheader("⚠️ Inquilinos Morosos")
-    
-    morosos = obtener_morosos()
-    
-    if not morosos.empty:
-        st.dataframe(morosos, use_container_width=True)
-        
-        deuda_total = morosos['deuda_total'].sum()
-        st.metric("Deuda Total Pendiente", f"${deuda_total:,.2f}")
-        
-        st.download_button(
-            "📥 Descargar Reporte",
-            morosos.to_csv(index=False),
-            "reporte_morosidad.csv",
-            "text/csv"
-        )
-    else:
-        st.success("🎉 No hay morosidad registrada!")
-
-def mostrar_historial():
-    """Muestra el historial de pagos"""
-    st.subheader("📜 Historial de Pagos")
-    
-    historial = obtener_historial_pagos()
-    
-    if not historial.empty:
-        st.dataframe(historial, use_container_width=True)
-        
-        st.download_button(
-            "📥 Descargar Historial",
-            historial.to_csv(index=False),
-            "historial_pagos.csv",
-            "text/csv"
-        )
-    else:
-        st.info("No hay pagos registrados aún")
 
 # --- APLICACIÓN PRINCIPAL --- #
 def main():
