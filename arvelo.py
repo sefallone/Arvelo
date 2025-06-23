@@ -12,9 +12,9 @@ def get_db_connection():
     db_path = os.path.join(temp_dir, "pagos_arvelo.db")
     return sqlite3.connect(db_path, check_same_thread=False)
 
-# --- DATOS INICIALES (Del Excel que proporcionaste) --- #
+# --- DATOS INICIALES (Del Excel proporcionado) --- #
 def cargar_datos_iniciales():
-    """Devuelve los datos iniciales basados en tu archivo Excel"""
+    """Devuelve los datos iniciales basados en el archivo Excel"""
     return [
         ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
         ('LOCAL B', 'OSCAR DUQUE ECHEVERRIA', 'PB', 'LENCERIA', 350.0, 'OSCAR DUQUE ECHEVERRI'),
@@ -75,12 +75,11 @@ def cargar_datos_iniciales():
 
 # --- INICIALIZACIÓN DE LA BASE DE DATOS --- #
 def init_db():
-    """Inicializa la base de datos con la estructura y datos iniciales"""
+    """Inicializa la base de datos con estructura y datos iniciales"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Crear tabla si no existe
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS pagos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,10 +97,8 @@ def init_db():
             )
         ''')
         
-        # Verificar si la tabla está vacía
         cursor.execute("SELECT COUNT(*) FROM pagos")
         if cursor.fetchone()[0] == 0:
-            # Insertar datos iniciales
             cursor.executemany('''
                 INSERT INTO pagos (
                     numero_local, inquilino, planta, ramo_negocio, canon, contrato
@@ -115,32 +112,32 @@ def init_db():
         conn.close()
 
 # --- FUNCIONES DE CONSULTA --- #
-def obtener_locales():
-    """Obtiene la lista de locales únicos"""
+def obtener_inquilinos():
+    """Obtiene lista de inquilinos únicos"""
     conn = get_db_connection()
-    locales = pd.read_sql("SELECT DISTINCT numero_local FROM pagos ORDER BY numero_local", conn)['numero_local'].tolist()
+    df = pd.read_sql("SELECT DISTINCT inquilino FROM pagos ORDER BY inquilino", conn)
     conn.close()
-    return locales
+    return df['inquilino'].tolist()
 
-def obtener_inquilinos_por_local(local):
-    """Obtiene inquilinos para un local específico"""
+def obtener_locales_por_inquilino(inquilino):
+    """Obtiene locales asociados a un inquilino específico"""
     conn = get_db_connection()
-    inquilinos = pd.read_sql(
-        "SELECT DISTINCT inquilino FROM pagos WHERE numero_local = ? ORDER BY inquilino",
-        conn, params=(local,)
-    )['inquilino'].tolist()
+    df = pd.read_sql(
+        "SELECT DISTINCT numero_local FROM pagos WHERE inquilino = ? ORDER BY numero_local",
+        conn, params=(inquilino,)
+    )
     conn.close()
-    return inquilinos
+    return df['numero_local'].tolist()
 
-def obtener_info_local(local):
+def obtener_info_local(numero_local):
     """Obtiene información detallada de un local"""
     conn = get_db_connection()
-    info = pd.read_sql(
+    df = pd.read_sql(
         "SELECT planta, ramo_negocio, canon, contrato FROM pagos WHERE numero_local = ? LIMIT 1",
-        conn, params=(local,)
-    ).iloc[0]
+        conn, params=(numero_local,)
+    )
     conn.close()
-    return info
+    return df.iloc[0] if not df.empty else None
 
 def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
     """Registra un nuevo pago en la base de datos"""
@@ -148,19 +145,19 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Actualizar registro existente o insertar nuevo
+        info_local = obtener_info_local(local)
+        
         cursor.execute('''
             INSERT INTO pagos (
                 numero_local, inquilino, planta, ramo_negocio, canon, contrato,
-                fecha_pago, mes_abonado, estado, observaciones
-            )
-            SELECT 
-                ?, ?, planta, ramo_negocio, canon, contrato,
-                ?, ?, ?, ?
-            FROM pagos
-            WHERE numero_local = ? AND inquilino = ?
-            LIMIT 1
-        ''', (local, inquilino, fecha_pago, mes_abonado, estado, observaciones, local, inquilino))
+                fecha_pago, mes_abonado, monto, estado, observaciones
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            local, inquilino,
+            info_local['planta'], info_local['ramo_negocio'],
+            info_local['canon'], info_local['contrato'],
+            fecha_pago, mes_abonado, monto, estado, observaciones
+        ))
         
         conn.commit()
         return True
@@ -173,7 +170,7 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
 def obtener_morosos():
     """Obtiene la lista de inquilinos morosos"""
     conn = get_db_connection()
-    morosos = pd.read_sql('''
+    df = pd.read_sql('''
         SELECT 
             numero_local, 
             inquilino, 
@@ -186,12 +183,12 @@ def obtener_morosos():
         ORDER BY deuda_total DESC
     ''', conn)
     conn.close()
-    return morosos
+    return df
 
 def obtener_historial_pagos():
     """Obtiene el historial completo de pagos"""
     conn = get_db_connection()
-    historial = pd.read_sql('''
+    df = pd.read_sql('''
         SELECT 
             numero_local,
             inquilino,
@@ -205,42 +202,76 @@ def obtener_historial_pagos():
         ORDER BY fecha_pago DESC
     ''', conn)
     conn.close()
-    return historial
+    return df
 
 # --- INTERFAZ DE USUARIO --- #
 def mostrar_formulario_pago():
-    """Muestra el formulario para registrar pagos"""
+    """Muestra el formulario de registro de pagos con filtrado dinámico"""
     st.subheader("📝 Registrar Nuevo Pago")
     
-    locales = obtener_locales()
+    # Obtener lista de inquilinos
+    inquilinos = obtener_inquilinos()
     
+    # Selector de inquilino con estado en session_state
+    if 'inquilino_seleccionado' not in st.session_state:
+        st.session_state.inquilino_seleccionado = inquilinos[0] if inquilinos else None
+    
+    inquilino_seleccionado = st.selectbox(
+        "Seleccione Inquilino*",
+        options=inquilinos,
+        index=0,
+        key="select_inquilino",
+        on_change=lambda: st.session_state.update({"local_seleccionado": None})
+    )
+    
+    # Obtener locales asociados al inquilino seleccionado
+    locales = obtener_locales_por_inquilino(inquilino_seleccionado) if inquilino_seleccionado else []
+    
+    if not locales:
+        st.warning("Este inquilino no tiene locales asignados")
+        return
+    
+    # Selector de local con estado en session_state
+    if 'local_seleccionado' not in st.session_state:
+        st.session_state.local_seleccionado = locales[0] if locales else None
+    
+    local_seleccionado = st.selectbox(
+        "Seleccione Local*",
+        options=locales,
+        index=0,
+        key="select_local"
+    )
+    
+    # Mostrar información del local seleccionado
+    info_local = obtener_info_local(local_seleccionado)
+    if info_local is not None:
+        st.text(f"Planta: {info_local['planta']}")
+        st.text(f"Ramo del negocio: {info_local['ramo_negocio']}")
+        st.text(f"Canon: ${info_local['canon']:.2f}")
+        st.text(f"Contrato: {info_local['contrato']}")
+    
+    # Formulario de registro de pago
     with st.form("form_pago", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            local = st.selectbox("Número de Local*", locales)
-            inquilinos = obtener_inquilinos_por_local(local)
-            inquilino = st.selectbox("Inquilino*", inquilinos)
-            fecha_pago = st.date_input("Fecha de Pago*", datetime.now())
-        
-        with col2:
-            info_local = obtener_info_local(local)
-            st.text(f"Planta: {info_local['planta']}")
-            st.text(f"Ramo: {info_local['ramo_negocio']}")
-            st.text(f"Canon: ${info_local['canon']:.2f}")
-            
-            mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="2025-06")
-            monto = st.number_input("Monto Pagado*", min_value=0.0, value=float(info_local['canon']))
-            estado = st.selectbox("Estado*", ["Pagado", "Parcial"])
-        
+        fecha_pago = st.date_input("Fecha de Pago*", datetime.now())
+        mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="2025-06")
+        monto = st.number_input("Monto Pagado*", min_value=0.0, value=float(info_local['canon']) if info_local else 0.0)
+        estado = st.selectbox("Estado*", ["Pagado", "Parcial"])
         observaciones = st.text_area("Observaciones")
         
         if st.form_submit_button("💾 Guardar Pago"):
             if not mes_abonado:
                 st.error("Debe especificar el mes abonado")
             else:
-                if registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
-                    st.success("Pago registrado exitosamente!")
+                if registrar_pago(
+                    local_seleccionado, 
+                    inquilino_seleccionado,
+                    fecha_pago,
+                    mes_abonado,
+                    monto,
+                    estado,
+                    observaciones
+                ):
+                    st.success("✅ Pago registrado exitosamente!")
                     st.balloons()
 
 def mostrar_morosos():
@@ -290,21 +321,19 @@ def main():
         layout="wide"
     )
     
-    # Inicializar base de datos
-    init_db()
+    init_db()  # Inicializar base de datos
     
     st.title("💰 Dashboard de Pagos - Arvelo")
     st.markdown("---")
     
-    # Menú lateral
     menu = st.sidebar.selectbox(
         "Menú Principal",
-        ["Registrar Pago", "Morosidad", "Historial de Pagos"]
+        ["Registrar Pago", "Consultar Morosidad", "Historial de Pagos"]
     )
     
     if menu == "Registrar Pago":
         mostrar_formulario_pago()
-    elif menu == "Morosidad":
+    elif menu == "Consultar Morosidad":
         mostrar_morosos()
     elif menu == "Historial de Pagos":
         mostrar_historial()
