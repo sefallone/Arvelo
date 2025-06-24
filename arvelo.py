@@ -1,3 +1,4 @@
+# 1. IMPORTACIONES REQUERIDAS
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -5,43 +6,42 @@ from datetime import datetime, date
 import tempfile
 import os
 import shutil
-from dateutil.relativedelta import relativedelta
 
-# --- CONFIGURACIÓN DE LA BASE DE DATOS --- #
+# 2. CONFIGURACIÓN DE LA BASE DE DATOS
 def get_db_connection():
-    """Crea una conexión a la base de datos SQLite con configuración mejorada"""
+    """
+    Establece y retorna una conexión a la base de datos SQLite
+    con configuración para acceso multi-hilo
+    """
     temp_dir = tempfile.gettempdir()
     db_path = os.path.join(temp_dir, "pagos_arvelo_v2.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row  # Para acceso por nombre de columna
+    conn.row_factory = sqlite3.Row  # Permite acceso a columnas por nombre
     return conn
 
-# --- DATOS INICIALES --- #
+# 3. DATOS INICIALES DEL SISTEMA
 def cargar_datos_iniciales():
-    """Devuelve los datos iniciales de locales con cánones base (2020)"""
+    """
+    Retorna los datos iniciales de locales con su información básica
+    Formato: (local, inquilino, planta, ramo, canon, contrato)
+    """
     return [
-        ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
-        # ... (todos los demás locales del código original)
+        ('LOCAL A', 'MONICA VARGAS', 'PB', 'LENCERIA', 350.0, 'CONTRATO A'),
+        ('LOCAL B', 'OSCAR DUQUE', 'PB', 'LENCERIA', 350.0, 'CONTRATO B'),
+        # ... (agregar todos los demás locales)
     ]
 
-def cargar_historicos_canon():
-    """Devuelve los cánones históricos para cada año"""
-    return [
-        ('LOCAL A', 2020, 350.0),
-        ('LOCAL A', 2021, 370.0),
-        ('LOCAL A', 2022, 400.0),
-        ('LOCAL A', 2023, 420.0),
-        # ... (cánones para todos los locales y años)
-    ]
-
-# --- INICIALIZACIÓN DE LA BASE DE DATOS --- #
+# 4. INICIALIZACIÓN DE LA BASE DE DATOS
 def init_db():
-    """Inicializa la base de datos con estructura mejorada"""
+    """
+    Crea las tablas necesarias en la base de datos
+    e inserta los datos iniciales si no existen
+    """
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Tabla de locales (maestra)
+        # Crear tabla de locales si no existe
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS locales (
                 numero_local TEXT PRIMARY KEY,
@@ -52,26 +52,14 @@ def init_db():
             )
         ''')
         
-        # Tabla de cánones históricos
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS historico_canon (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                numero_local TEXT NOT NULL,
-                ano INTEGER NOT NULL,
-                canon REAL NOT NULL,
-                FOREIGN KEY(numero_local) REFERENCES locales(numero_local),
-                UNIQUE(numero_local, ano)
-            )
-        ''')
-        
-        # Tabla de pagos (transacciones)
+        # Crear tabla de pagos con relaciones
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS pagos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 numero_local TEXT NOT NULL,
                 inquilino TEXT NOT NULL,
                 fecha_pago DATE NOT NULL,
-                mes_abonado TEXT NOT NULL,  -- Formato YYYY-MM
+                mes_abonado TEXT NOT NULL,
                 monto REAL NOT NULL,
                 estado TEXT CHECK(estado IN ('Pagado', 'Parcial', 'Pendiente')),
                 observaciones TEXT,
@@ -79,110 +67,83 @@ def init_db():
             )
         ''')
         
-        # Índices para mejor performance
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pagos_local ON pagos(numero_local)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_pagos_mes ON pagos(mes_abonado)')
-        
-        # Insertar datos iniciales si no existen
-        cursor.execute("SELECT COUNT(*) FROM locales")
-        if cursor.fetchone()[0] == 0:
-            # Insertar locales
-            cursor.executemany('''
-                INSERT INTO locales (numero_local, inquilino, planta, ramo_negocio, contrato)
-                VALUES (?, ?, ?, ?, ?)
-            ''', [(x[0], x[1], x[2], x[3], x[5]) for x in cargar_datos_iniciales()])
+        # Verificar si hay datos existentes
+        if cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0] == 0:
+            # Insertar datos iniciales
+            datos = cargar_datos_iniciales()
+            cursor.executemany(
+                '''INSERT INTO locales 
+                (numero_local, inquilino, planta, ramo_negocio, contrato)
+                VALUES (?, ?, ?, ?, ?)''',
+                [(x[0], x[1], x[2], x[3], x[5]) for x in datos]
+            )
             
-            # Insertar cánones históricos
-            cursor.executemany('''
-                INSERT INTO historico_canon (numero_local, ano, canon)
-                VALUES (?, ?, ?)
-            ''', cargar_historicos_canon())
-        
         conn.commit()
     except Exception as e:
-        st.error(f"Error al inicializar la base de datos: {str(e)}")
+        st.error(f"Error inicializando base de datos: {str(e)}")
     finally:
         conn.close()
 
-# --- FUNCIONES DE CONSULTA --- #
+# 5. FUNCIONES DE CONSULTA A LA BASE DE DATOS
 def obtener_locales():
-    """Obtiene lista de todos los locales"""
+    """Retorna lista ordenada de todos los locales registrados"""
     conn = get_db_connection()
-    df = pd.read_sql("SELECT numero_local FROM locales ORDER BY numero_local", conn)
-    conn.close()
-    return df['numero_local'].tolist()
+    try:
+        df = pd.read_sql("SELECT numero_local FROM locales ORDER BY numero_local", conn)
+        return df['numero_local'].tolist()
+    finally:
+        conn.close()
 
 def obtener_inquilinos():
-    """Obtiene lista de inquilinos únicos"""
+    """Retorna lista alfabética de inquilinos únicos"""
     conn = get_db_connection()
-    df = pd.read_sql("SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", conn)
-    conn.close()
-    return df['inquilino'].tolist()
+    try:
+        df = pd.read_sql("SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", conn)
+        return df['inquilino'].tolist()
+    finally:
+        conn.close()
 
 def obtener_locales_por_inquilino(inquilino):
-    """Obtiene locales asociados a un inquilino"""
+    """
+    Retorna los locales asociados a un inquilino específico
+    ordenados por número de local
+    """
     conn = get_db_connection()
-    df = pd.read_sql(
-        "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
-        conn, params=(inquilino,)
-    )
-    conn.close()
-    return df['numero_local'].tolist()
+    try:
+        df = pd.read_sql(
+            "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
+            conn, params=(inquilino,)
+        )
+        return df['numero_local'].tolist()
+    finally:
+        conn.close()
 
 def obtener_info_local(numero_local):
-    """Obtiene información detallada de un local"""
+    """
+    Retorna información completa de un local específico
+    como un objeto Row con los campos:
+    numero_local, inquilino, planta, ramo_negocio, contrato
+    """
     conn = get_db_connection()
-    df = pd.read_sql('''
-        SELECT l.*, h.canon 
-        FROM locales l
-        JOIN (
-            SELECT numero_local, MAX(ano) as max_ano 
-            FROM historico_canon 
-            GROUP BY numero_local
-        ) ultimo ON l.numero_local = ultimo.numero_local
-        JOIN historico_canon h ON l.numero_local = h.numero_local AND h.ano = ultimo.max_ano
-        WHERE l.numero_local = ?
-    ''', conn, params=(numero_local,))
-    conn.close()
-    return df.iloc[0] if not df.empty else None
-
-def obtener_canon_historico(numero_local, ano=None):
-    """Obtiene el canon de un local para un año específico"""
-    conn = get_db_connection()
-    if ano:
+    try:
         df = pd.read_sql(
-            "SELECT canon FROM historico_canon WHERE numero_local = ? AND ano = ?",
-            conn, params=(numero_local, ano)
+            "SELECT * FROM locales WHERE numero_local = ?",
+            conn, params=(numero_local,)
         )
-    else:
-        df = pd.read_sql('''
-            SELECT canon FROM historico_canon 
-            WHERE numero_local = ? 
-            ORDER BY ano DESC LIMIT 1
-        ''', conn, params=(numero_local,))
-    conn.close()
-    return df.iloc[0]['canon'] if not df.empty else None
+        return df.iloc[0] if not df.empty else None
+    finally:
+        conn.close()
 
-# --- FUNCIONES DE REGISTRO --- #
+# 6. FUNCIONES DE REGISTRO Y ACTUALIZACIÓN
 def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
-    """Registra un nuevo pago con validación de datos"""
-    if not validar_formato_mes(mes_abonado):
-        raise ValueError("Formato de mes inválido. Use YYYY-MM")
-    
+    """
+    Registra un nuevo pago en la base de datos con validación básica
+    Retorna True si fue exitoso, False si falló
+    """
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Verificar si ya existe un pago para este mes
-        cursor.execute('''
-            SELECT 1 FROM pagos 
-            WHERE numero_local = ? AND mes_abonado = ?
-        ''', (local, mes_abonado))
-        
-        if cursor.fetchone():
-            raise ValueError(f"Ya existe un pago registrado para {local} en {mes_abonado}")
-        
-        # Insertar el nuevo pago
         cursor.execute('''
             INSERT INTO pagos (
                 numero_local, inquilino, fecha_pago, mes_abonado, 
@@ -193,102 +154,18 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
         conn.commit()
         return True
     except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        conn.close()
-
-def actualizar_canon_local(numero_local, ano, nuevo_canon):
-    """Actualiza el canon de un local para un año específico"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO historico_canon (numero_local, ano, canon)
-            VALUES (?, ?, ?)
-        ''', (numero_local, ano, nuevo_canon))
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        raise e
-    finally:
-        conn.close()
-
-# --- FUNCIONES DE CÁLCULO --- #
-def calcular_morosidad(inquilino=None, local=None):
-    """Calcula meses adeudados y montos pendientes"""
-    conn = get_db_connection()
-    
-    # Construir consulta dinámica
-    query = '''
-        WITH meses_pagados AS (
-            SELECT 
-                numero_local,
-                mes_abonado
-            FROM pagos
-            WHERE estado IN ('Pagado', 'Parcial')
-            GROUP BY numero_local, mes_abonado
-        ),
-        meses_adeudados AS (
-            SELECT 
-                l.numero_local,
-                l.inquilino,
-                h.ano,
-                h.canon,
-                printf("%04d-%02d", h.ano, m.mes) AS mes
-            FROM locales l
-            JOIN historico_canon h ON l.numero_local = h.numero_local
-            JOIN (
-                WITH RECURSIVE meses(mes) AS (
-                    SELECT 1
-                    UNION ALL
-                    SELECT mes+1 FROM meses WHERE mes < 12
-                ) SELECT mes FROM meses
-            ) m
-            WHERE printf("%04d-%02d", h.ano, m.mes) NOT IN (
-                SELECT mes_abonado FROM meses_pagados WHERE numero_local = l.numero_local
-            )
-            AND printf("%04d-%02d", h.ano, m.mes) < strftime("%Y-%m", date('now'))
-        )
-        SELECT 
-            numero_local,
-            inquilino,
-            COUNT(*) AS meses_adeudados,
-            SUM(canon) AS total_adeudado,
-            GROUP_CONCAT(mes, ', ') AS periodos_adeudados
-        FROM meses_adeudados
-        WHERE 1=1
-    '''
-    
-    params = []
-    if inquilino:
-        query += " AND inquilino = ?"
-        params.append(inquilino)
-    if local:
-        query += " AND numero_local = ?"
-        params.append(local)
-    
-    query += " GROUP BY numero_local, inquilino ORDER BY total_adeudados DESC"
-    
-    df = pd.read_sql(query, conn, params=params if params else None)
-    conn.close()
-    return df
-
-# --- FUNCIONES DE VALIDACIÓN --- #
-def validar_formato_mes(mes_str):
-    """Valida que el string tenga formato YYYY-MM"""
-    try:
-        datetime.strptime(mes_str, "%Y-%m")
-        return True
-    except ValueError:
+        st.error(f"Error registrando pago: {str(e)}")
         return False
+    finally:
+        conn.close()
 
-# --- INTERFAZ DE USUARIO --- #
+# 7. INTERFACES DE USUARIO
 def mostrar_formulario_pago():
-    """Formulario principal para registrar pagos"""
-    st.subheader("📝 Registrar Pago")
+    """Muestra el formulario interactivo para registro de pagos"""
+    st.subheader("📝 Registrar Nuevo Pago")
     
     with st.form(key='form_pago'):
+        # Sección 1: Selección de inquilino y local
         col1, col2 = st.columns(2)
         
         with col1:
@@ -309,26 +186,25 @@ def mostrar_formulario_pago():
                 st.markdown(f"""
                     **Planta:** {info['planta']}  
                     **Ramo:** {info['ramo_negocio']}  
-                    **Canon Actual:** ${info['canon']:,.2f}  
                     **Contrato:** {info['contrato']}
                 """)
         
+        # Sección 2: Datos del pago
         with col2:
             fecha_pago = st.date_input(
                 "Fecha de Pago*",
-                value=date.today(),
-                max_value=date.today()
+                value=date.today()
             )
             
             mes_abonado = st.text_input(
                 "Mes Abonado* (YYYY-MM)",
-                value=date.today().strftime("%Y-%m")
+                placeholder="2023-01"
             )
             
             monto = st.number_input(
                 "Monto*",
                 min_value=0.0,
-                value=float(info['canon']) if local else 0.0,
+                value=350.0,
                 step=10.0
             )
             
@@ -339,156 +215,83 @@ def mostrar_formulario_pago():
             
             observaciones = st.text_area("Observaciones")
         
+        # Botón de envío dentro del formulario
         submitted = st.form_submit_button("💾 Guardar Pago")
-        
-        if submitted:
-            if not all([local, inquilino, mes_abonado]):
-                st.error("Campos obligatorios faltantes")
-            elif not validar_formato_mes(mes_abonado):
-                st.error("Formato de mes inválido. Use YYYY-MM")
-            else:
-                try:
-                    registrar_pago(
-                        local, inquilino, fecha_pago, 
-                        mes_abonado, monto, estado, observaciones
-                    )
-                    st.success("✅ Pago registrado exitosamente!")
-                    st.balloons()
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-
-def mostrar_morosos():
-    """Interfaz para consultar morosidad"""
-    st.subheader("🚨 Consulta de Morosidad")
     
-    filtro = st.radio("Filtrar por:", ["Todos", "Inquilino", "Local"])
-    
-    if filtro == "Inquilino":
-        inquilino = st.selectbox("Seleccione inquilino", obtener_inquilinos())
-        df = calcular_morosidad(inquilino=inquilino)
-    elif filtro == "Local":
-        local = st.selectbox("Seleccione local", obtener_locales())
-        df = calcular_morosidad(local=local)
-    else:
-        df = calcular_morosidad()
-    
-    if not df.empty:
-        st.dataframe(
-            df.style.format({
-                'total_adeudado': '${:,.2f}'
-            }),
-            use_container_width=True
-        )
-        
-        total_adeudado = df['total_adeudado'].sum()
-        st.metric("Total Adeudado", f"${total_adeudado:,.2f}")
-    else:
-        st.success("👍 No hay morosidad registrada")
+    # Procesamiento después del envío (fuera del form)
+    if submitted:
+        if not all([local, inquilino, mes_abonado]):
+            st.error("Por favor complete todos los campos obligatorios (*)")
+        else:
+            if registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
+                st.success("✅ Pago registrado exitosamente!")
+                st.balloons()
 
 def mostrar_historial():
-    """Interfaz para consultar historial de pagos"""
+    """Muestra el historial completo de pagos registrados"""
     st.subheader("📜 Historial de Pagos")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        local = st.selectbox(
-            "Local (opcional)",
-            options=["Todos"] + obtener_locales(),
-            index=0
-        )
-    
-    with col2:
-        inquilino = st.selectbox(
-            "Inquilino (opcional)",
-            options=["Todos"] + obtener_inquilinos(),
-            index=0
-        )
-    
-    # Construir consulta dinámica
-    query = '''
-        SELECT 
-            p.numero_local,
-            p.inquilino,
-            p.fecha_pago,
-            p.mes_abonado,
-            p.monto,
-            p.estado,
-            p.observaciones
-        FROM pagos p
-        WHERE 1=1
-    '''
-    
-    params = []
-    if local != "Todos":
-        query += " AND p.numero_local = ?"
-        params.append(local)
-    if inquilino != "Todos":
-        query += " AND p.inquilino = ?"
-        params.append(inquilino)
-    
-    query += " ORDER BY p.fecha_pago DESC"
-    
     conn = get_db_connection()
-    df = pd.read_sql(query, conn, params=params if params else None)
-    conn.close()
-    
-    if not df.empty:
-        st.dataframe(
-            df.style.format({
-                'monto': '${:,.2f}'
-            }),
-            use_container_width=True,
-            hide_index=True
+    try:
+        # Obtener todos los pagos ordenados por fecha descendente
+        df = pd.read_sql(
+            "SELECT * FROM pagos ORDER BY fecha_pago DESC",
+            conn
         )
-    else:
-        st.warning("No se encontraron registros")
-
-def mostrar_administracion():
-    """Interfaz para administrar cánones"""
-    st.subheader("⚙️ Administrar Cánones")
-    
-    tab1, tab2 = st.tabs(["Actualizar Canon", "Histórico por Local"])
-    
-    with tab1:
-        with st.form(key='form_canon'):
-            local = st.selectbox("Local", obtener_locales())
-            ano = st.number_input("Año", min_value=2020, max_value=date.today().year, value=date.today().year)
-            nuevo_canon = st.number_input("Nuevo Canon", min_value=0.0, step=10.0)
-            
-            if st.form_submit_button("💾 Actualizar Canon"):
-                try:
-                    actualizar_canon_local(local, ano, nuevo_canon)
-                    st.success(f"✅ Canon actualizado: Local {local} - Año {ano} = ${nuevo_canon:,.2f}")
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-    
-    with tab2:
-        local_hist = st.selectbox("Seleccione local para ver histórico", obtener_locales())
-        conn = get_db_connection()
-        df = pd.read_sql('''
-            SELECT ano, canon 
-            FROM historico_canon 
-            WHERE numero_local = ?
-            ORDER BY ano
-        ''', conn, params=(local_hist,))
-        conn.close()
         
+        # Mostrar dataframe con formato mejorado
         if not df.empty:
             st.dataframe(
                 df.style.format({
-                    'canon': '${:,.2f}'
+                    'monto': '${:,.2f}'
                 }),
                 use_container_width=True,
                 hide_index=True
             )
-            
-            # Mostrar gráfico de evolución
-            st.line_chart(df.set_index('ano'), y='canon')
         else:
-            st.warning("No hay histórico registrado para este local")
+            st.warning("No hay pagos registrados aún")
+    finally:
+        conn.close()
 
-# --- APLICACIÓN PRINCIPAL --- #
+def mostrar_morosos():
+    """Muestra reporte de morosidad con cálculos básicos"""
+    st.subheader("⚠️ Reporte de Morosidad")
+    
+    conn = get_db_connection()
+    try:
+        # Consulta para identificar pagos pendientes
+        df = pd.read_sql('''
+            SELECT l.numero_local, l.inquilino, 
+                   COUNT(p.id) AS pagos_pendientes,
+                   SUM(l.canon) AS total_adeudado
+            FROM locales l
+            LEFT JOIN pagos p ON l.numero_local = p.numero_local 
+                            AND p.estado = 'Pendiente'
+            GROUP BY l.numero_local, l.inquilino
+            HAVING pagos_pendientes > 0
+            ORDER BY total_adeudado DESC
+        ''', conn)
+        
+        if not df.empty:
+            st.dataframe(
+                df.style.format({
+                    'total_adeudado': '${:,.2f}'
+                }),
+                use_container_width=True
+            )
+            
+            # Resumen total
+            total_adeudado = df['total_adeudado'].sum()
+            st.metric("Total Adeudado", f"${total_adeudado:,.2f}")
+        else:
+            st.success("👍 No hay morosidad registrada")
+    finally:
+        conn.close()
+
+# 8. CONFIGURACIÓN PRINCIPAL DE LA APLICACIÓN
 def main():
+    """Función principal que configura y ejecuta la aplicación"""
+    # Configuración de la página
     st.set_page_config(
         page_title="Sistema de Pagos Arvelo",
         page_icon="💰",
@@ -496,28 +299,30 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    init_db()  # Inicializar base de datos
+    # Inicializar base de datos
+    init_db()
     
+    # Título principal
     st.title("💰 Sistema de Gestión de Pagos - Arvelo")
     st.markdown("---")
     
-    menu = st.sidebar.selectbox(
+    # Menú lateral
+    menu_opcion = st.sidebar.selectbox(
         "Menú Principal",
-        ["Registrar Pago", "Consultar Morosidad", "Historial de Pagos", "Administración"]
+        ["Registrar Pago", "Historial de Pagos", "Reporte de Morosidad"]
     )
     
-    if menu == "Registrar Pago":
+    # Navegación entre secciones
+    if menu_opcion == "Registrar Pago":
         mostrar_formulario_pago()
-    elif menu == "Consultar Morosidad":
-        mostrar_morosos()
-    elif menu == "Historial de Pagos":
+    elif menu_opcion == "Historial de Pagos":
         mostrar_historial()
-    elif menu == "Administración":
-        mostrar_administracion()
+    elif menu_opcion == "Reporte de Morosidad":
+        mostrar_morosos()
     
-    # Backup en el sidebar
+    # Sección de backup en el sidebar
     st.sidebar.markdown("---")
-    if st.sidebar.button("🔄 Generar Backup de la Base de Datos"):
+    if st.sidebar.button("🔄 Generar Backup"):
         try:
             db_path = os.path.join(tempfile.gettempdir(), "pagos_arvelo_v2.db")
             with tempfile.NamedTemporaryFile(delete=False) as tmp:
@@ -532,5 +337,6 @@ def main():
         except Exception as e:
             st.sidebar.error(f"Error al generar backup: {str(e)}")
 
+# 9. EJECUCIÓN DEL PROGRAMA
 if __name__ == "__main__":
     main()
