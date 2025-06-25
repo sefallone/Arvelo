@@ -122,7 +122,6 @@ def init_db():
                     continue
             
             conn.commit()
-            st.success("✅ Base de datos inicializada correctamente")
             
     except Exception as e:
         st.error(f"Error inicializando DB: {str(e)}")
@@ -194,47 +193,34 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
     finally:
         conn.close()
 
-# 6. FORMULARIO DE PAGOS (VERSIÓN CORREGIDA)
+# 6. FORMULARIO DE PAGOS (VERSIÓN FINAL CORREGIDA)
 def mostrar_formulario_pago():
-    """Muestra el formulario para registrar pagos con actualización automática"""
+    """Muestra el formulario para registrar pagos con todas las correcciones"""
     st.subheader("📝 Registrar Nuevo Pago")
-    
-    # Usamos session_state para mantener el estado entre ejecuciones
-    if 'inquilino_seleccionado' not in st.session_state:
-        st.session_state.inquilino_seleccionado = None
-    if 'local_seleccionado' not in st.session_state:
-        st.session_state.local_seleccionado = None
     
     # Obtener lista de inquilinos
     inquilinos = obtener_inquilinos()
     
+    # Crear el formulario
     with st.form(key='form_pago'):
         col1, col2 = st.columns(2)
         
         with col1:
-            # Selector de inquilino con actualización de estado
+            # Selector de inquilino
             inquilino_seleccionado = st.selectbox(
                 "Seleccione Inquilino*",
                 options=inquilinos,
-                key="select_inquilino",
-                index=0
+                key="select_inquilino"
             )
             
-            # Actualizar el estado cuando cambia el inquilino
-            if inquilino_seleccionado != st.session_state.inquilino_seleccionado:
-                st.session_state.inquilino_seleccionado = inquilino_seleccionado
-                st.session_state.local_seleccionado = None
-                st.experimental_rerun()
+            # Obtener locales del inquilino seleccionado
+            locales_del_inquilino = obtener_locales_por_inquilino(inquilino_seleccionado)
             
-            # Obtener locales solo del inquilino seleccionado
-            locales_del_inquilino = obtener_locales_por_inquilino(inquilino_seleccionado) if inquilino_seleccionado else []
-            
-            # Selector de local con key único basado en el inquilino
+            # Selector de local
             local_seleccionado = st.selectbox(
                 "Seleccione Local*",
                 options=locales_del_inquilino,
-                key=f"select_local_{inquilino_seleccionado}",
-                index=0
+                key="select_local"
             )
             
             # Mostrar información del local seleccionado
@@ -272,10 +258,11 @@ def mostrar_formulario_pago():
             
             observaciones = st.text_area("Observaciones")
         
-        submitted = st.form_submit_button("💾 Guardar Pago")
+        # Botón de submit CORREGIDO (usando st.form_submit_button)
+        submit_button = st.form_submit_button("💾 Guardar Pago")
     
-    # Validación y procesamiento del formulario
-    if submitted:
+    # Procesamiento fuera del formulario
+    if submit_button:
         if not all([local_seleccionado, inquilino_seleccionado, mes_abonado]):
             st.error("Por favor complete todos los campos obligatorios (*)")
         else:
@@ -295,7 +282,12 @@ def main():
         layout="wide"
     )
     
-    init_db()  # Inicializar base de datos
+    # Inicializar base de datos (con mensaje de éxito)
+    try:
+        init_db()
+    except Exception as e:
+        st.error(f"Error inicializando la aplicación: {str(e)}")
+        return
     
     st.title("💰 Sistema de Gestión de Pagos - Arvelo")
     st.markdown("---")
