@@ -136,6 +136,10 @@ def init_db():
                     st.error(f"Error inesperado al insertar local {dato[0]}: {str(e)}")
             conn.commit()
             st.success("Datos iniciales de locales cargados exitosamente.")
+        else:
+            # Added for debugging: Show how many locals are in the DB if it's not empty
+            count = cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0]
+            st.info(f"Base de datos de locales ya inicializada con {count} registros.")
         
     except Exception as e:
         st.error(f"Error al inicializar la base de datos: {str(e)}")
@@ -228,11 +232,19 @@ def mostrar_formulario_pago():
                 index=0 # Por defecto, selecciona la opción vacía
             )
             
+            # --- INICIO DE DEPURACIÓN ---
+            st.write(f"Inquilino seleccionado (DEBUG): '{inquilino_seleccionado}'")
+            # --- FIN DE DEPURACIÓN ---
+
             # Obtener locales del inquilino seleccionado
             locales_del_inquilino = []
             if inquilino_seleccionado:
                 locales_del_inquilino = obtener_locales_por_inquilino(inquilino_seleccionado)
             
+            # --- INICIO DE DEPURACIÓN ---
+            st.write(f"Locales para '{inquilino_seleccionado}' (DEBUG): {locales_del_inquilino}")
+            # --- FIN DE DEPURACIÓN ---
+
             # Selector de local
             local_seleccionado = st.selectbox(
                 "Seleccione Local*",
