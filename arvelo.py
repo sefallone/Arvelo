@@ -144,6 +144,9 @@ def obtener_inquilinos():
 
 def obtener_locales_por_inquilino(inquilino):
     """Retorna solo los locales del inquilino especificado"""
+    if not inquilino:
+        return []
+        
     conn = get_db_connection()
     try:
         df = pd.read_sql(
@@ -191,10 +194,16 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
     finally:
         conn.close()
 
-# 6. FORMULARIO DE PAGOS (ACTUALIZADO)
+# 6. FORMULARIO DE PAGOS (VERSIÓN CORREGIDA)
 def mostrar_formulario_pago():
-    """Muestra el formulario para registrar pagos"""
+    """Muestra el formulario para registrar pagos con actualización automática"""
     st.subheader("📝 Registrar Nuevo Pago")
+    
+    # Usamos session_state para mantener el estado entre ejecuciones
+    if 'inquilino_seleccionado' not in st.session_state:
+        st.session_state.inquilino_seleccionado = None
+    if 'local_seleccionado' not in st.session_state:
+        st.session_state.local_seleccionado = None
     
     # Obtener lista de inquilinos
     inquilinos = obtener_inquilinos()
@@ -203,31 +212,40 @@ def mostrar_formulario_pago():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Selector de inquilino
+            # Selector de inquilino con actualización de estado
             inquilino_seleccionado = st.selectbox(
                 "Seleccione Inquilino*",
                 options=inquilinos,
-                key="select_inquilino"
+                key="select_inquilino",
+                index=0
             )
+            
+            # Actualizar el estado cuando cambia el inquilino
+            if inquilino_seleccionado != st.session_state.inquilino_seleccionado:
+                st.session_state.inquilino_seleccionado = inquilino_seleccionado
+                st.session_state.local_seleccionado = None
+                st.experimental_rerun()
             
             # Obtener locales solo del inquilino seleccionado
             locales_del_inquilino = obtener_locales_por_inquilino(inquilino_seleccionado) if inquilino_seleccionado else []
             
-            # Selector de local
+            # Selector de local con key único basado en el inquilino
             local_seleccionado = st.selectbox(
                 "Seleccione Local*",
                 options=locales_del_inquilino,
-                key="select_local"
+                key=f"select_local_{inquilino_seleccionado}",
+                index=0
             )
             
             # Mostrar información del local seleccionado
             if local_seleccionado:
                 info_local = obtener_info_local(local_seleccionado)
-                st.markdown(f"""
-                    **Planta:** {info_local['planta']}  
-                    **Ramo:** {info_local['ramo_negocio']}  
-                    **Contrato:** {info_local['contrato']}
-                """)
+                if info_local:
+                    st.markdown(f"""
+                        **Planta:** {info_local['planta']}  
+                        **Ramo:** {info_local['ramo_negocio']}  
+                        **Contrato:** {info_local['contrato']}
+                    """)
         
         with col2:
             fecha_pago = st.date_input(
