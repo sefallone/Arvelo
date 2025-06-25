@@ -1,4 +1,4 @@
-# 1. IMPORTACIONES NECESARIAS
+# 1. IMPORTACIONES
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -8,10 +8,10 @@ import os
 import re
 from time import sleep
 
-# 2. CONFIGURACIÓN DE LA BASE DE DATOS
+# 2. CONEXIÓN A LA BASE DE DATOS
 @st.cache_resource
 def get_db_connection():
-    """Establece conexión con la base de datos SQLite"""
+    """Establece y retorna una conexión a la base de datos SQLite"""
     try:
         temp_dir = tempfile.gettempdir()
         db_path = os.path.join(temp_dir, "pagos_arvelo.db")
@@ -19,7 +19,7 @@ def get_db_connection():
         conn.row_factory = sqlite3.Row
         return conn
     except sqlite3.Error as e:
-        st.error(f"Error de conexión a la base de datos: {e}")
+        st.error(f"Error al conectar con la base de datos: {e}")
         st.stop()
 
 # 3. DATOS INICIALES
@@ -86,7 +86,8 @@ def cargar_datos_iniciales():
 
 # 4. INICIALIZACIÓN DE LA BASE DE DATOS
 def init_db():
-    """Crea las tablas necesarias si no existen"""
+    """Inicializa la estructura de la base de datos"""
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -117,8 +118,12 @@ def init_db():
             )
         ''')
         
-        # Insertar datos iniciales si la tabla está vacía
-        if cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0] == 0:
+        # Verificar si la tabla de locales está vacía
+        cursor.execute("SELECT COUNT(*) FROM locales")
+        count = cursor.fetchone()[0]
+        
+        if count == 0:
+            # Insertar datos iniciales
             for dato in cargar_datos_iniciales():
                 cursor.execute(
                     '''INSERT INTO locales 
@@ -130,7 +135,8 @@ def init_db():
             
     except sqlite3.Error as e:
         st.error(f"Error al inicializar la base de datos: {e}")
-        conn.rollback()
+        if conn:
+            conn.rollback()
         st.stop()
     finally:
         if conn:
@@ -139,7 +145,8 @@ def init_db():
 # 5. FUNCIONES DE CONSULTA
 @st.cache_data(ttl=3600)
 def obtener_inquilinos():
-    """Obtiene la lista de inquilinos desde la base de datos"""
+    """Retorna una lista de todos los inquilinos"""
+    conn = None
     try:
         conn = get_db_connection()
         df = pd.read_sql("SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", conn)
@@ -147,12 +154,16 @@ def obtener_inquilinos():
     except Exception as e:
         st.error(f"Error al obtener inquilinos: {e}")
         return [""]
+    finally:
+        if conn:
+            conn.close()
 
 def obtener_locales_por_inquilino(inquilino):
-    """Obtiene los locales asociados a un inquilino"""
+    """Retorna los locales asociados a un inquilino específico"""
     if not inquilino:
         return []
-        
+    
+    conn = None
     try:
         conn = get_db_connection()
         df = pd.read_sql(
@@ -163,10 +174,14 @@ def obtener_locales_por_inquilino(inquilino):
     except Exception as e:
         st.error(f"Error al obtener locales: {e}")
         return []
+    finally:
+        if conn:
+            conn.close()
 
 # 6. FUNCIONES PARA REGISTRAR PAGOS
 def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
     """Registra un nuevo pago en la base de datos"""
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -180,7 +195,8 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
         return True
     except Exception as e:
         st.error(f"Error al registrar pago: {e}")
-        conn.rollback()
+        if conn:
+            conn.rollback()
         return False
     finally:
         if conn:
@@ -188,7 +204,7 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
 
 # 7. INTERFAZ DE USUARIO - FORMULARIO
 def mostrar_formulario_pago():
-    """Muestra el formulario para registrar pagos"""
+    """Muestra el formulario para registrar nuevos pagos"""
     st.subheader("📝 Registrar Nuevo Pago")
     
     with st.form(key='form_pago', clear_on_submit=True):
@@ -239,6 +255,7 @@ def mostrar_historial_pagos():
     """Muestra el historial de pagos registrados"""
     st.subheader("📜 Historial de Pagos")
     
+    conn = None
     try:
         conn = get_db_connection()
         df = pd.read_sql("SELECT * FROM pagos ORDER BY fecha_pago DESC", conn)
@@ -255,7 +272,7 @@ def mostrar_historial_pagos():
 
 # 9. FUNCIÓN PRINCIPAL
 def main():
-    """Configuración principal de la aplicación"""
+    """Función principal de la aplicación"""
     # Configuración de la página
     st.set_page_config(
         page_title="Sistema de Pagos Arvelo",
