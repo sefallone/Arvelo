@@ -77,7 +77,7 @@ def cargar_datos_iniciales():
 
     ]
 
-# 3. INICIALIZACIÓN DE LA BASE DE DATOS
+# 3. INICIALIZACIÓN DE LA BASE DE DATOS (CORREGIDA)
 def init_db():
     """Inicializa la estructura de la base de datos"""
     try:
@@ -116,16 +116,16 @@ def init_db():
             for dato in datos:
                 try:
                     cursor.execute(
-                        '''INSERT INTO locales 
+                        '''INSERT OR IGNORE INTO locales 
                         (numero_local, inquilino, planta, ramo_negocio, contrato)
                         VALUES (?, ?, ?, ?, ?)''',
                         (dato[0], dato[1], dato[2], dato[3], dato[5])
-                except sqlite3.IntegrityError:
-                    st.warning(f"Local {dato[0]} ya existe, omitiendo...")
+                except sqlite3.IntegrityError as e:
+                    st.warning(f"Error insertando local {dato[0]}: {str(e)}")
                     continue
             
             conn.commit()
-            st.success("Base de datos inicializada correctamente")
+            st.success("✅ Base de datos inicializada correctamente")
             
     except Exception as e:
         st.error(f"Error inicializando DB: {str(e)}")
@@ -152,7 +152,7 @@ def obtener_locales(inquilino=None):
         if inquilino:
             df = pd.read_sql(
                 "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
-                conn, params=(inquilino,)
+                conn, params=(inquilino,))
         else:
             df = pd.read_sql(
                 "SELECT numero_local FROM locales ORDER BY numero_local",
@@ -197,7 +197,7 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
     finally:
         conn.close()
 
-# 6. FORMULARIO DE PAGOS (VERSIÓN CORREGIDA)
+# 6. FORMULARIO DE PAGOS
 def mostrar_formulario_pago():
     """Muestra el formulario para registrar pagos"""
     st.subheader("📝 Registrar Nuevo Pago")
