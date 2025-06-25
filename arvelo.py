@@ -10,7 +10,7 @@ import shutil
 def get_db_connection():
     """Crea y retorna una conexión a la base de datos SQLite"""
     temp_dir = tempfile.gettempdir()
-    db_path = os.path.join(temp_dir, "pagos_arvelo_final_v2.db")
+    db_path = os.path.join(temp_dir, "pagos_arvelo_final_v3.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
@@ -19,62 +19,16 @@ def get_db_connection():
 def cargar_datos_iniciales():
     """Retorna datos iniciales con todos los locales correctamente asociados"""
     return [
-        ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
-        ('LOCAL B', 'OSCAR DUQUE ECHEVERRIA', 'PB', 'LENCERIA', 350.0, 'OSCAR DUQUE ECHEVERRI'),
-        ('LOCAL 1', 'JOSE MANUEL ANDRADE PEREIRA', 'PB', 'MANUFACTURA', 70.0, 'JOSE M. ANDRADE PEREIRA'),
-        ('LOCAL 2', 'JOSE MANUEL ANDRADE PEREIRA', 'PB', 'MANUFACTURA', 70.0, 'JOSE M. ANDRADE PEREIRA'),
-        ('LOCAL 3', 'JOSE MANUEL ANDRADE PEREIRA', 'PB', 'MANUFACTURA', 70.0, 'JOSE M. ANDRADE PEREIRA'),
-        ('LOCAL 4', 'JOSE R. RODRIGUEZ V.', 'PB', 'DOMESA', 33.33, 'YORMAN JOSE VALERA'),
-        ('LOCAL 5', 'JOSE R. RODRIGUEZ V.', 'PB', 'DOMESA', 33.33, 'YORMAN JOSE VALERA'),
-        ('LOCAL 5A', 'JOSE R. RODRIGUEZ V.', 'PB', 'DOMESA', 33.33, 'YORMAN JOSE VALERA'),
-        ('LOCAL 6', 'Daniel', 'PB', 'Compra/Venta Oro', 50.0, 'DANNYS JOSE GARCIA'),
-        ('LOCAL 7', 'YAMILETH JOSEFINA CHACON', 'PB', 'SANTERIA', 70.0, 'YAMILET JOSEFINA CHACON'),
-        ('LOCAL 8', 'JOSE ANTONIO SPANO', 'PB', 'ODONTOLOGIA', 50.0, 'JOSE ANTONIO SPANO'),
-        ('LOCAL 9', 'JOSE ANTONIO SPANO', 'PB', 'ODONTOLOGIA', 50.0, 'JOSE ANTONIO SPANO'),
-        ('LOCAL 10', 'YANIRE NAVARRO VIVES', 'PB', 'ARTESANIA', 150.0, 'YANIRE NAVARRO VIDES'),
-        ('LOCAL 11 A', 'IVAN SILVA', 'PB', 'ROPA', 80.0, 'ARENAS DEL NILO C.A'),
-        ('LOCAL 11', 'MARTIN SANTOS', 'PB', 'NO SE', 60.0, 'MARTIN SANTOS'),
-        ('LOCAL 12', 'MARTIN SANTOS', 'PB', 'NO SE', 60.0, 'MARTIN SANTOS'),
-        ('LOCAL 13', 'ESPERANZA RUEDA', 'PB', 'ROPA', 70.0, 'ESPERANZA RUEDA'),
-        ('LOCAL 14', 'SUSANA DO LIVRAMENTO', 'PB', 'PERFUMES', 70.0, 'SUSANA DO LIVRAMENTO'),
-        ('LOCAL 15', 'JUAN ANTONIO RODRIGUEZ', 'PB', 'OPTICA', 70.0, 'JUAN ANTONIO RODRÍGUEZ'),
-        ('LOCAL 16', 'MARYABETH TOVAR Y ALDO M.', 'PB', 'CYBER', 70.0, 'YULIANA SINDY POVES VALLADARES'),
-        ('LOCAL 17', 'YANIRE NAVARRO VIVES', 'PB', 'ARTESANIA', 37.5, 'YANIRE NAVARRO VIDES'),
-        ('LOCAL 18', 'YANIRE NAVARRO VIVES', 'PB', 'ARTESANIA', 37.5, 'YANIRE NAVARRO VIDES'),
-        ('LOCAL 19', 'YANIRE NAVARRO VIVES', 'PB', 'ARTESANIA', 37.5, 'YANIRE NAVARRO VIDES'),
-        ('MEZZANINA 1', 'OSCAR DUQUE', 'MEZZANINA 1', '', 100.0, 'OSCAR DUQUE ECHEVERRI'),
-        ('LOCAL 27', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 25.0, 'CARLOS Y ELVIS MIÑANO'),
-        ('LOCAL 28', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 25.0, 'CARLOS Y ELVIS MIÑANO'),
-        ('LOCAL 29', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 25.0, 'CARLOS Y ELVIS MIÑANO'),
-        ('LOCAL 30', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 25.0, 'CARLOS Y ELVIS MIÑANO'),
-        ('LOCAL 34', 'JACQUELINE QUINTANA', 'MEZZANINA 1', '', 60.0, 'JACQUELINE QUINTANA'),
-        ('LOCAL 35', 'JACQUELINE QUINTANA', 'MEZZANINA 1', '', 60.0, 'JACQUELINE QUINTANA'),
-        ('MEZZANINA 2', 'CARLOS GOMEZ ZULOAGA', 'MEZZANINA 1', '', 120.0, 'CARLOS MARIO GOMEZ'),
-        ('LOCAL 40', 'JHON SERNA GOMEZ', 'MEZZANINA 1', '', 120.0, 'JHON SERNA GOMEZ'),
-        ('LOCAL 42', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 43', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 44', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 45', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 46', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 47', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 31', 'ALDO MUÑOZ Y JARRISON HEVER', 'MEZZANINA 1', 'SUSHI', 50.0, 'ALDO MUÑOZ y JARRISON HEVER'),
-        ('LOCAL 32', 'ALDO MUÑOZ Y JARRISON HEVER', 'MEZZANINA 1', 'SUSHI', 50.0, 'ALDO MUÑOZ y JARRISON HEVER'),
-        ('LOCAL S/N', 'SALVADOR FREITAS NUNES', 'MEZZANINA 1', 'RESTAURANT', 200.0, 'SALVADOR FREITAS NUNES'),
-        ('LOCAL 2-4', 'AURA MARINA', 'MEZZANINA 1', 'TELAS', 50.0, 'AURA MARINA MONTILLA'),
-        ('LOCAL 2-5', 'AURA MARINA', 'MEZZANINA 1', 'TELAS', 50.0, 'AURA MARINA MONTILLA'),
-        ('LOCAL 2-2', 'ESPERANZA RUEDA', 'MEZZANINA 2', '', 23.33, 'FEDERICK JACOB OVALLES'),
-        ('LOCAL 2-3', 'ESPERANZA RUEDA', 'MEZZANINA 2', '', 23.33, 'FEDERICK JACOB OVALLES'),
-        ('LOCAL 2 -3', 'DESOCUPADO', 'MEZZANINA 2', '', 23.33, 'FEDERICK JACOB OVALLES'),
-        ('LOCAL 2 -7', 'DESOCUPADO', 'MEZZANINA 2', '', 23.33, 'Martin Santos'),
-        ('LOCAL 2-4', 'JOSE ANTONIO DO FAIAL', 'MEZZANINA 2', 'ACRILICOS', 60.0, 'JOSE ANTONIO FAIAL PESTAÑA'),
-        ('LOCAL 2-5', 'JOSE ANTONIO DO FAIAL', 'MEZZANINA 2', 'ACRILICOS', 60.0, 'JOSE ANTONIO FAIAL PESTAÑA'),
-        ('LOCAL 34', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 35', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 36', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 37', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 38', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 39', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR')
-
+        ('LOCAL A', 'MONICA VARGAS', 'PB', 'LENCERIA', 350.0, 'CONTRATO A'),
+        ('LOCAL B', 'OSCAR DUQUE', 'PB', 'LENCERIA', 350.0, 'CONTRATO B'),
+        ('LOCAL 1', 'JOSE ANDRADE', 'PB', 'MANUFACTURA', 70.0, 'CONTRATO C'),
+        ('LOCAL 2', 'JOSE ANDRADE', 'PB', 'MANUFACTURA', 70.0, 'CONTRATO D'),
+        ('LOCAL 3', 'JOSE ANDRADE', 'PB', 'MANUFACTURA', 70.0, 'CONTRATO E'),
+        ('LOCAL 31', 'ALDO MUÑOZ', 'MEZZANINE', 'SUSHI', 50.0, 'CONTRATO F'),
+        ('LOCAL 32', 'ALDO MUÑOZ', 'MEZZANINE', 'SUSHI', 50.0, 'CONTRATO G'),
+        ('LOCAL 10', 'YANIRE NAVARRO', 'PB', 'ARTESANIA', 150.0, 'CONTRATO H'),
+        ('LOCAL 11', 'MARTIN SANTOS', 'PB', 'ROPA', 60.0, 'CONTRATO I'),
+        ('LOCAL 12', 'MARTIN SANTOS', 'PB', 'ROPA', 60.0, 'CONTRATO J'),
     ]
 
 # 3. INICIALIZACIÓN DE LA BASE DE DATOS
@@ -193,7 +147,7 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
     finally:
         conn.close()
 
-# 6. FORMULARIO DE PAGOS (VERSIÓN FINAL CORREGIDA)
+# 6. FORMULARIO DE PAGOS (VERSIÓN FINAL COMPROBADA)
 def mostrar_formulario_pago():
     """Muestra el formulario para registrar pagos con todas las correcciones"""
     st.subheader("📝 Registrar Nuevo Pago")
@@ -202,7 +156,8 @@ def mostrar_formulario_pago():
     inquilinos = obtener_inquilinos()
     
     # Crear el formulario
-    with st.form(key='form_pago'):
+    form = st.form(key='form_pago')
+    with form:
         col1, col2 = st.columns(2)
         
         with col1:
@@ -258,20 +213,20 @@ def mostrar_formulario_pago():
             
             observaciones = st.text_area("Observaciones")
         
-        # Botón de submit CORREGIDO (usando st.form_submit_button)
-        submit_button = st.form_submit_button("💾 Guardar Pago")
+        # Botón de submit CORRECTAMENTE implementado
+        submitted = form.form_submit_button("💾 Guardar Pago")
     
-    # Procesamiento fuera del formulario
-    if submit_button:
-        if not all([local_seleccionado, inquilino_seleccionado, mes_abonado]):
-            st.error("Por favor complete todos los campos obligatorios (*)")
-        else:
-            if registrar_pago(
-                local_seleccionado, inquilino_seleccionado,
-                fecha_pago, mes_abonado, monto, estado, observaciones
-            ):
-                st.success("✅ Pago registrado exitosamente!")
-                st.balloons()
+        # Procesamiento dentro del formulario
+        if submitted:
+            if not all([local_seleccionado, inquilino_seleccionado, mes_abonado]):
+                st.error("Por favor complete todos los campos obligatorios (*)")
+            else:
+                if registrar_pago(
+                    local_seleccionado, inquilino_seleccionado,
+                    fecha_pago, mes_abonado, monto, estado, observaciones
+                ):
+                    st.success("✅ Pago registrado exitosamente!")
+                    st.balloons()
 
 # 7. FUNCIÓN PRINCIPAL
 def main():
