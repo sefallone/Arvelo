@@ -77,14 +77,13 @@ def cargar_datos_iniciales():
 
     ]
 
-# 3. INICIALIZACIÓN DE LA BASE DE DATOS (CORREGIDA)
+# 3. INICIALIZACIÓN DE LA BASE DE DATOS
 def init_db():
     """Inicializa la estructura de la base de datos"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Tabla de locales
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS locales (
                 numero_local TEXT PRIMARY KEY,
@@ -95,7 +94,6 @@ def init_db():
             )
         ''')
         
-        # Tabla de pagos
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS pagos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,7 +108,6 @@ def init_db():
             )
         ''')
         
-        # Insertar datos iniciales si la tabla está vacía
         if cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0] == 0:
             datos = cargar_datos_iniciales()
             for dato in datos:
@@ -141,23 +138,19 @@ def obtener_inquilinos():
             "SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", 
             conn
         )
-        return [''] + df['inquilino'].tolist()
+        return df['inquilino'].tolist()
     finally:
         conn.close()
 
-def obtener_locales(inquilino=None):
-    """Retorna locales, opcionalmente filtrados por inquilino"""
+def obtener_locales_por_inquilino(inquilino):
+    """Retorna solo los locales del inquilino especificado"""
     conn = get_db_connection()
     try:
-        if inquilino:
-            df = pd.read_sql(
-                "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
-                conn, params=(inquilino,))
-        else:
-            df = pd.read_sql(
-                "SELECT numero_local FROM locales ORDER BY numero_local",
-                conn)
-        return [''] + df['numero_local'].tolist()
+        df = pd.read_sql(
+            "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
+            conn, params=(inquilino,)
+        )
+        return df['numero_local'].tolist()
     finally:
         conn.close()
 
@@ -170,7 +163,8 @@ def obtener_info_local(numero_local):
     try:
         df = pd.read_sql(
             "SELECT * FROM locales WHERE numero_local = ?",
-            conn, params=(numero_local,))
+            conn, params=(numero_local,)
+        )
         return df.iloc[0] if not df.empty else None
     finally:
         conn.close()
@@ -197,10 +191,13 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
     finally:
         conn.close()
 
-# 6. FORMULARIO DE PAGOS
+# 6. FORMULARIO DE PAGOS (ACTUALIZADO)
 def mostrar_formulario_pago():
     """Muestra el formulario para registrar pagos"""
     st.subheader("📝 Registrar Nuevo Pago")
+    
+    # Obtener lista de inquilinos
+    inquilinos = obtener_inquilinos()
     
     with st.form(key='form_pago'):
         col1, col2 = st.columns(2)
@@ -208,28 +205,29 @@ def mostrar_formulario_pago():
         with col1:
             # Selector de inquilino
             inquilino_seleccionado = st.selectbox(
-                "Inquilino*",
-                options=obtener_inquilinos(),
-                index=0
+                "Seleccione Inquilino*",
+                options=inquilinos,
+                key="select_inquilino"
             )
             
-            # Selector de local (se actualiza según inquilino seleccionado)
-            locales_disponibles = obtener_locales(inquilino_seleccionado) if inquilino_seleccionado else obtener_locales()
+            # Obtener locales solo del inquilino seleccionado
+            locales_del_inquilino = obtener_locales_por_inquilino(inquilino_seleccionado) if inquilino_seleccionado else []
+            
+            # Selector de local
             local_seleccionado = st.selectbox(
-                "Local*",
-                options=locales_disponibles,
-                index=0
+                "Seleccione Local*",
+                options=locales_del_inquilino,
+                key="select_local"
             )
             
             # Mostrar información del local seleccionado
             if local_seleccionado:
                 info_local = obtener_info_local(local_seleccionado)
-                if info_local is not None:
-                    st.markdown(f"""
-                        **Planta:** {info_local['planta']}  
-                        **Ramo:** {info_local['ramo_negocio']}  
-                        **Contrato:** {info_local['contrato']}
-                    """)
+                st.markdown(f"""
+                    **Planta:** {info_local['planta']}  
+                    **Ramo:** {info_local['ramo_negocio']}  
+                    **Contrato:** {info_local['contrato']}
+                """)
         
         with col2:
             fecha_pago = st.date_input(
