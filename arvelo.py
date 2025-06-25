@@ -6,258 +6,209 @@ import tempfile
 import os
 import re
 from time import sleep
+import shutil
+import difflib
+import plotly.express as px
 
-# 1. CONFIGURACIÓN DE LA BASE DE DATOS
+# 1. CONFIGURACIÓN MEJORADA DE LA BASE DE DATOS
 @st.cache_resource
 def get_db_connection():
-    """Crea y retorna una conexión persistente a la base de datos SQLite."""
+    """Crea una conexión persistente a SQLite con mejor configuración."""
     temp_dir = tempfile.gettempdir()
     db_path = os.path.join(temp_dir, "pagos_arvelo_final_corregido.db")
-    conn = sqlite3.connect(db_path, check_same_thread=False)
+    
+    # Configuración mejorada para concurrencia
+    conn = sqlite3.connect(db_path, isolation_level=None)
+    conn.execute("PRAGMA journal_mode=WAL")  # Mejor rendimiento multihilo
+    conn.execute("PRAGMA foreign_keys=ON")   # Habilitar claves foráneas
     conn.row_factory = sqlite3.Row
+    
+    # Crear tabla de auditoría si no existe
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS auditoria (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tabla_afectada TEXT NOT NULL,
+            operacion TEXT NOT NULL,
+            fecha_hora DATETIME NOT NULL,
+            usuario TEXT,
+            detalles TEXT
+        )
+    ''')
+    
     return conn
 
-# 2. DATOS INICIALES VERIFICADOS
-def cargar_datos_iniciales():
-    """Retorna datos iniciales con todos los locales correctamente asociados."""
-    return [
-        ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
-        ('LOCAL B', 'OSCAR DUQUE ECHEVERRIA', 'PB', 'LENCERIA', 350.0, 'OSCAR DUQUE ECHEVERRI'),
-        ('LOCAL 1', 'JOSE MANUEL ANDRADE PEREIRA', 'PB', 'MANUFACTURA', 70.0, 'JOSE M. ANDRADE PEREIRA'),
-        ('LOCAL 2', 'JOSE MANUEL ANDRADE PEREIRA', 'PB', 'MANUFACTURA', 70.0, 'JOSE M. ANDRADE PEREIRA'),
-        ('LOCAL 3', 'JOSE MANUEL ANDRADE PEREIRA', 'PB', 'MANUFACTURA', 70.0, 'JOSE M. ANDRADE PEREIRA'),
-        ('LOCAL 4', 'JOSE R. RODRIGUEZ V.', 'PB', 'DOMESA', 33.33, 'YORMAN JOSE VALERA'),
-        ('LOCAL 5', 'JOSE R. RODRIGUEZ V.', 'PB', 'DOMESA', 33.33, 'YORMAN JOSE VALERA'),
-        ('LOCAL 5A', 'JOSE R. RODRIGUEZ V.', 'PB', 'DOMESA', 33.33, 'YORMAN JOSE VALERA'),
-        ('LOCAL 6', 'Daniel', 'PB', 'Compra/Venta Oro', 50.0, 'DANNYS JOSE GARCIA'),
-        ('LOCAL 7', 'YAMILETH JOSEFINA CHACON', 'PB', 'SANTERIA', 70.0, 'YAMILET JOSEFINA CHACON'),
-        ('LOCAL 8', 'JOSE ANTONIO SPANO', 'PB', 'ODONTOLOGIA', 50.0, 'JOSE ANTONIO SPANO'),
-        ('LOCAL 9', 'JOSE ANTONIO SPANO', 'PB', 'ODONTOLOGIA', 50.0, 'JOSE ANTONIO SPANO'),
-        ('LOCAL 10', 'YANIRE NAVARRO VIVES', 'PB', 'ARTESANIA', 150.0, 'YANIRE NAVARRO VIDES'),
-        ('LOCAL 11 A', 'IVAN SILVA', 'PB', 'ROPA', 80.0, 'ARENAS DEL NILO C.A'),
-        ('LOCAL 11', 'MARTIN SANTOS', 'PB', 'NO SE', 60.0, 'MARTIN SANTOS'),
-        ('LOCAL 12', 'MARTIN SANTOS', 'PB', 'NO SE', 60.0, 'MARTIN SANTOS'),
-        ('LOCAL 13', 'ESPERANZA RUEDA', 'PB', 'ROPA', 70.0, 'ESPERANZA RUEDA'),
-        ('LOCAL 14', 'SUSANA DO LIVRAMENTO', 'PB', 'PERFUMES', 70.0, 'SUSANA DO LIVRAMENTO'),
-        ('LOCAL 15', 'JUAN ANTONIO RODRIGUEZ', 'PB', 'OPTICA', 70.0, 'JUAN ANTONIO RODRÍGUEZ'),
-        ('LOCAL 16', 'MARYABETH TOVAR Y ALDO M.', 'PB', 'CYBER', 70.0, 'YULIANA SINDY POVES VALLADARES'),
-        ('LOCAL 17', 'YANIRE NAVARRO VIVES', 'PB', 'ARTESANIA', 37.5, 'YANIRE NAVARRO VIDES'),
-        ('LOCAL 18', 'YANIRE NAVARRO VIVES', 'PB', 'ARTESANIA', 37.5, 'YANIRE NAVARRO VIDES'),
-        ('LOCAL 19', 'YANIRE NAVARRO VIVES', 'PB', 'ARTESANIA', 37.5, 'YANIRE NAVARRO VIDES'),
-        ('MEZZANINA 1', 'OSCAR DUQUE', 'MEZZANINA 1', '', 100.0, 'OSCAR DUQUE ECHEVERRI'),
-        ('LOCAL 27', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 25.0, 'CARLOS Y ELVIS MIÑANO'),
-        ('LOCAL 28', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 25.0, 'CARLOS Y ELVIS MIÑANO'),
-        ('LOCAL 29', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 25.0, 'CARLOS Y ELVIS MIÑANO'),
-        ('LOCAL 30', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 25.0, 'CARLOS Y ELVIS MIÑANO'),
-        ('LOCAL 34', 'JACQUELINE QUINTANA', 'MEZZANINA 1', '', 60.0, 'JACQUELINE QUINTANA'),
-        ('LOCAL 35', 'JACQUELINE QUINTANA', 'MEZZANINA 1', '', 60.0, 'JACQUELINE QUINTANA'),
-        ('MEZZANINA 2', 'CARLOS GOMEZ ZULOAGA', 'MEZZANINA 1', '', 120.0, 'CARLOS MARIO GOMEZ'),
-        ('LOCAL 40', 'JHON SERNA GOMEZ', 'MEZZANINA 1', '', 120.0, 'JHON SERNA GOMEZ'),
-        ('LOCAL 42', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 43', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 44', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 45', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 46', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 47', 'CARLOS Y ELIS MIÑANO', 'MEZZANINA 1', '', 16.67, 'GERARDO MIÑANO TRUJILLO'),
-        ('LOCAL 31', 'ALDO MUÑOZ Y JARRISON HEVER', 'MEZZANINA 1', 'SUSHI', 50.0, 'ALDO MUÑOZ y JARRISON HEVER'),
-        ('LOCAL 32', 'ALDO MUÑOZ Y JARRISON HEVER', 'MEZZANINA 1', 'SUSHI', 50.0, 'ALDO MUÑOZ y JARRISON HEVER'),
-        ('LOCAL S/N', 'SALVADOR FREITAS NUNES', 'MEZZANINA 1', 'RESTAURANT', 200.0, 'SALVADOR FREITAS NUNES'),
-        ('LOCAL 2-4', 'AURA MARINA', 'MEZZANINA 1', 'TELAS', 50.0, 'AURA MARINA MONTILLA'),
-        ('LOCAL 2-5', 'AURA MARINA', 'MEZZANINA 1', 'TELAS', 50.0, 'AURA MARINA MONTILLA'),
-        ('LOCAL 2-2', 'ESPERANZA RUEDA', 'MEZZANINA 2', '', 23.33, 'FEDERICK JACOB OVALLES'),
-        ('LOCAL 2-3', 'ESPERANZA RUEDA', 'MEZZANINA 2', '', 23.33, 'FEDERICK JACOB OVALLES'),
-        ('LOCAL 2 -3', 'DESOCUPADO', 'MEZZANINA 2', '', 23.33, 'FEDERICK JACOB OVALLES'),
-        ('LOCAL 2 -7', 'DESOCUPADO', 'MEZZANINA 2', '', 23.33, 'Martin Santos'),
-        ('LOCAL 2-4', 'JOSE ANTONIO DO FAIAL', 'MEZZANINA 2', 'ACRILICOS', 60.0, 'JOSE ANTONIO FAIAL PESTAÑA'),
-        ('LOCAL 2-5', 'JOSE ANTONIO DO FAIAL', 'MEZZANINA 2', 'ACRILICOS', 60.0, 'JOSE ANTONIO FAIAL PESTAÑA'),
-        ('LOCAL 34', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 35', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 36', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 37', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 38', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
-        ('LOCAL 39', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR')
-
-    ]
-
-# 3. INICIALIZACIÓN DE LA BASE DE DATOS CON VERIFICACIÓN
-def init_db():
-    """Inicializa la estructura de la base de datos con verificación de datos."""
+# 2. FUNCIÓN DE BACKUP AUTOMÁTICO
+def hacer_backup():
+    """Realiza backup de la base de datos y retorna la ruta del archivo."""
     conn = get_db_connection()
-    cursor = conn.cursor()
+    conn.commit()  # Asegurar que todos los cambios estén escritos
+    
+    backup_dir = os.path.join(os.path.expanduser("~"), "backups_pagos_arvelo")
+    os.makedirs(backup_dir, exist_ok=True)
+    
+    db_path = os.path.join(tempfile.gettempdir(), "pagos_arvelo_final_corregido.db")
+    backup_path = os.path.join(backup_dir, f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
     
     try:
-        # Tabla de locales
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS locales (
-                numero_local TEXT PRIMARY KEY,
-                inquilino TEXT NOT NULL,
-                planta TEXT,
-                ramo_negocio TEXT,
-                contrato TEXT
-            )
-        ''')
-        
-        # Tabla de pagos
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS pagos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                numero_local TEXT NOT NULL,
-                inquilino TEXT NOT NULL,
-                fecha_pago DATE NOT NULL,
-                mes_abonado TEXT NOT NULL,
-                monto REAL NOT NULL,
-                estado TEXT CHECK(estado IN ('Pagado', 'Parcial', 'Pendiente')),
-                observaciones TEXT,
-                FOREIGN KEY(numero_local) REFERENCES locales(numero_local)
-            )
-        ''')
-        
-        # Insertar datos iniciales si la tabla está vacía
-        if cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0] == 0:
-            with st.spinner('Cargando datos iniciales...'):
-                for dato in cargar_datos_iniciales():
-                    try:
-                        cursor.execute(
-                            '''INSERT OR IGNORE INTO locales 
-                            (numero_local, inquilino, planta, ramo_negocio, contrato)
-                            VALUES (?, ?, ?, ?, ?)''',
-                            (dato[0], dato[1], dato[2], dato[3], dato[5])
-                        )
-                    except Exception as e:
-                        st.error(f"Error al insertar local {dato[0]}: {str(e)}")
-                conn.commit()
-                
-                # Verificación de datos insertados
-                st.success("Datos iniciales cargados. Verificando...")
-                locales_count = cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0]
-                st.write(f"Total de locales cargados: {locales_count}")
-                
-                # Mostrar muestra de datos para verificación
-                sample = pd.read_sql("SELECT * FROM locales LIMIT 5", conn)
-                st.write("Muestra de datos:", sample)
-        
+        shutil.copy2(db_path, backup_path)
+        registrar_auditoria("backup", "CREATE", f"Backup creado en {backup_path}")
+        return backup_path
     except Exception as e:
-        st.error(f"Error crítico al inicializar la base de datos: {str(e)}")
-        st.stop()
+        st.error(f"Error al crear backup: {str(e)}")
+        return None
 
-# 4. FUNCIONES DE CONSULTA CON VERIFICACIÓN
+# 3. SISTEMA DE AUDITORÍA
+def registrar_auditoria(tabla, operacion, detalles=""):
+    """Registra una entrada en el log de auditoría."""
+    try:
+        conn = get_db_connection()
+        conn.execute('''
+            INSERT INTO auditoria (tabla_afectada, operacion, fecha_hora, detalles)
+            VALUES (?, ?, ?, ?)
+        ''', (tabla, operacion, datetime.now(), detalles))
+        conn.commit()
+    except Exception as e:
+        st.error(f"Error al registrar auditoría: {str(e)}")
+
+# 4. VALIDACIÓN MEJORADA DE DATOS
+def validar_mes(mes_str):
+    """Valida que el formato del mes sea YYYY-MM."""
+    try:
+        datetime.strptime(mes_str, "%Y-%m")
+        return True
+    except ValueError:
+        st.error("Formato de mes inválido. Use YYYY-MM (ej. 2023-01)")
+        return False
+
+def sugerir_inquilinos(query):
+    """Sugiere inquilinos similares usando difflib."""
+    inquilinos = obtener_inquilinos()[1:]  # Excluir el primer item vacío
+    sugerencias = difflib.get_close_matches(query, inquilinos, n=3, cutoff=0.6)
+    return sugerencias if sugerencias else []
+
+# 5. FUNCIONES DE CONSULTA OPTIMIZADAS
+@st.cache_data(ttl=3600)
 def obtener_inquilinos():
-    """Retorna todos los inquilinos únicos con verificación."""
+    """Retorna todos los inquilinos únicos con caché."""
     conn = get_db_connection()
     try:
-        df = pd.read_sql(
-            "SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", 
-            conn
-        )
-        # Verificación de datos obtenidos
-        if df.empty:
-            st.warning("No se encontraron inquilinos en la base de datos")
-            return [""]
-        
+        df = pd.read_sql("SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", conn)
         return [""] + df['inquilino'].tolist()
     except Exception as e:
         st.error(f"Error al obtener inquilinos: {str(e)}")
         return [""]
 
-def obtener_locales_por_inquilino(inquilino):
-    """Retorna locales del inquilino especificado con verificación."""
-    if not inquilino or not inquilino.strip():
-        return []
-        
+# 6. REPORTE DE MOROSIDAD COMPLETO
+def generar_reporte_morosidad():
+    """Genera reporte de morosidad con análisis detallado."""
     conn = get_db_connection()
-    try:
-        # Consulta exacta primero
-        exact_df = pd.read_sql(
-            "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
-            conn, params=(inquilino,)
+    
+    # Obtener meses esperados (últimos 12 meses)
+    meses_esperados = pd.date_range(end=date.today(), periods=12, freq='MS').strftime('%Y-%m').tolist()
+    
+    query = f"""
+    WITH meses_esperados AS (
+        SELECT '{("','").join(meses_esperados)}' as mes
+    ),
+    pagos_por_local AS (
+        SELECT 
+            l.numero_local,
+            l.inquilino,
+            l.planta,
+            l.ramo_negocio,
+            p.mes_abonado,
+            COUNT(p.mes_abonado) as pagos_count
+        FROM locales l
+        LEFT JOIN pagos p ON l.numero_local = p.numero_local 
+            AND p.mes_abonado IN (SELECT * FROM meses_esperados)
+        GROUP BY l.numero_local, p.mes_abonado
+    )
+    SELECT
+        numero_local,
+        inquilino,
+        planta,
+        ramo_negocio,
+        COUNT(mes_abonado) as meses_pagados,
+        {len(meses_esperados)} as meses_esperados,
+        ({len(meses_esperados)} - COUNT(mes_abonado)) as meses_morosidad,
+        GROUP_CONCAT(mes_abonado, ', ') as meses_pagados_lista
+    FROM pagos_por_local
+    GROUP BY numero_local
+    ORDER BY meses_morosidad DESC
+    """
+    
+    reporte = pd.read_sql(query, conn)
+    
+    # Calcular porcentaje de morosidad
+    if not reporte.empty:
+        reporte['porcentaje_morosidad'] = (reporte['meses_morosidad'] / reporte['meses_esperados']) * 100
+        reporte['estado'] = pd.cut(
+            reporte['porcentaje_morosidad'],
+            bins=[-1, 0, 30, 70, 101],
+            labels=['Al día', 'Morosidad leve', 'Morosidad media', 'Morosidad grave']
         )
-        
-        if not exact_df.empty:
-            return exact_df['numero_local'].tolist()
-        
-        # Si no hay resultados, buscar por similitud
-        similar_df = pd.read_sql(
-            "SELECT numero_local FROM locales WHERE inquilino LIKE ? ORDER BY numero_local",
-            conn, params=(f"%{inquilino}%",)
-        )
-        
-        if not similar_df.empty:
-            st.warning(f"Usando resultados similares para: {inquilino}")
-            return similar_df['numero_local'].tolist()
-            
-        return []
-    except Exception as e:
-        st.error(f"Error al obtener locales: {str(e)}")
-        return []
+    
+    return reporte
 
-# 5. FORMULARIO DE PAGOS CON MECANISMOS DE DEBUG
+# 7. VISUALIZACIONES MEJORADAS
+def mostrar_metricas(df):
+    """Muestra métricas resumidas con gráficos."""
+    if df.empty:
+        return
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        total_morosidad = df['meses_morosidad'].sum()
+        st.metric("Total meses en morosidad", total_morosidad)
+    
+    with col2:
+        locales_morosos = len(df[df['meses_morosidad'] > 0])
+        st.metric("Locales morosos", locales_morosos)
+    
+    with col3:
+        porcentaje_promedio = df['porcentaje_morosidad'].mean()
+        st.metric("Morosidad promedio", f"{porcentaje_promedio:.1f}%")
+    
+    # Gráfico de morosidad por planta
+    fig = px.bar(
+        df.groupby('planta')['meses_morosidad'].sum().reset_index(),
+        x='planta',
+        y='meses_morosidad',
+        title='Meses en morosidad por planta'
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# 8. FORMULARIO MEJORADO
 def mostrar_formulario_pago():
-    """Muestra el formulario para registrar pagos con verificación completa."""
+    """Muestra el formulario mejorado para registrar pagos."""
     st.subheader("📝 Registrar Nuevo Pago")
-    
-    # Obtener lista de inquilinos con verificación
-    inquilinos = obtener_inquilinos()
-    
-    # Debug: Mostrar inquilinos disponibles
-    st.write(f"DEBUG: Inquilinos disponibles ({len(inquilinos)-1}):", inquilinos[1:])
     
     with st.form(key='form_pago', clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            # Selector de inquilino
+            # Búsqueda inteligente de inquilinos
+            input_inquilino = st.text_input("Buscar Inquilino*", "")
+            if input_inquilino:
+                sugerencias = sugerir_inquilinos(input_inquilino)
+                if sugerencias:
+                    st.info("Sugerencias: " + ", ".join(sugerencias))
+            
             selected_inquilino = st.selectbox(
                 "Seleccione Inquilino*",
-                options=inquilinos,
-                index=0,
-                key='select_inquilino'
+                options=obtener_inquilinos(),
+                index=0
             )
             
-            # Debug: Mostrar inquilino seleccionado
-            st.write(f"DEBUG: Inquilino seleccionado: '{selected_inquilino}'")
-            
-            # Obtener locales para el inquilino seleccionado
-            locales_disponibles = [""]
-            if selected_inquilino:
-                locales = obtener_locales_por_inquilino(selected_inquilino)
-                
-                # Debug: Mostrar resultados de la consulta
-                st.write(f"DEBUG: Locales encontrados ({len(locales)}):", locales)
-                
-                if not locales:
-                    st.warning("No se encontraron locales para este inquilino")
-                    # Mostrar posibles coincidencias en la base de datos
-                    conn = get_db_connection()
-                    similar = pd.read_sql(
-                        "SELECT DISTINCT inquilino FROM locales WHERE inquilino LIKE ? LIMIT 5",
-                        conn, params=(f"%{selected_inquilino}%",)
-                    )
-                    if not similar.empty:
-                        st.info("Posibles coincidencias similares:")
-                        st.write(similar)
-                else:
-                    locales_disponibles += locales
-            
-            # Selector de local
+            # Selector de local con búsqueda
+            locales_disponibles = [""] + (obtener_locales_por_inquilino(selected_inquilino) if selected_inquilino else [])
             selected_local = st.selectbox(
                 "Seleccione Local*",
                 options=locales_disponibles,
-                index=0,
-                key='select_local'
+                index=0
             )
             
-            # Mostrar información del local seleccionado
-            if selected_local:
-                info_local = obtener_info_local(selected_local)
-                if info_local:
-                    st.info(f"""
-                        **Planta:** {info_local['planta']}  
-                        **Ramo:** {info_local['ramo_negocio']}  
-                        **Contrato:** {info_local['contrato']}
-                    """)
-                else:
-                    st.warning("No se encontró información detallada para este local")
-        
         with col2:
             fecha_pago = st.date_input("Fecha de Pago*", value=date.today())
             
@@ -285,102 +236,22 @@ def mostrar_formulario_pago():
         submitted = st.form_submit_button("💾 Guardar Pago")
         
         if submitted:
-            # Validaciones
-            if not selected_inquilino:
-                st.error("Por favor, seleccione un inquilino")
-            elif not selected_local:
-                st.error("Por favor, seleccione un local")
-            elif not mes_abonado or not re.match(r"^\d{4}-\d{2}$", mes_abonado):
-                st.error("El formato del 'Mes Abonado' debe ser YYYY-MM (ej. 2023-01)")
-            elif monto <= 0:
-                st.error("El monto debe ser mayor que cero")
+            if not all([selected_inquilino, selected_local, mes_abonado, monto > 0]):
+                st.error("Complete todos los campos obligatorios (*)")
+            elif not validar_mes(mes_abonado):
+                return
             else:
-                # Confirmación antes de guardar
-                with st.expander("📋 Ver resumen del pago", expanded=True):
-                    st.write(f"**Inquilino:** {selected_inquilino}")
-                    st.write(f"**Local:** {selected_local}")
-                    st.write(f"**Fecha Pago:** {fecha_pago.strftime('%Y-%m-%d')}")
-                    st.write(f"**Mes Abonado:** {mes_abonado}")
-                    st.write(f"**Monto:** ${monto:.2f}")
-                    st.write(f"**Estado:** {estado}")
-                    if observaciones:
-                        st.write(f"**Observaciones:** {observaciones}")
-                
-                if st.checkbox("✅ Confirmo que los datos son correctos"):
-                    with st.spinner('Guardando pago...'):
-                        if registrar_pago(
-                            selected_local, selected_inquilino,
-                            fecha_pago, mes_abonado, monto, estado, observaciones
-                        ):
-                            st.success("✅ Pago registrado exitosamente!")
-                            sleep(2)
-                            st.experimental_rerun()
+                if registrar_pago(
+                    selected_local, selected_inquilino,
+                    fecha_pago, mes_abonado, monto, estado, observaciones
+                ):
+                    st.success("✅ Pago registrado exitosamente!")
+                    sleep(2)
+                    st.experimental_rerun()
 
-# 6. FUNCIÓN PARA REGISTRAR PAGOS
-def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
-    """Registra un nuevo pago con manejo de errores mejorado."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute('''
-            INSERT INTO pagos (
-                numero_local, inquilino, fecha_pago, mes_abonado, 
-                monto, estado, observaciones
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (local, inquilino, fecha_pago.strftime('%Y-%m-%d'), mes_abonado, monto, estado, observaciones))
-        
-        conn.commit()
-        st.cache_data.clear()  # Limpiar cachés para actualizar vistas
-        return True
-    except Exception as e:
-        st.error(f"Error al registrar el pago: {str(e)}")
-        conn.rollback()
-        return False
-
-# 7. HISTORIAL DE PAGOS CON FILTROS
-def mostrar_historial_pagos():
-    """Muestra el historial de pagos con opciones de filtrado."""
-    st.subheader("📜 Historial de Pagos")
-    
-    # Filtros
-    col1, col2 = st.columns(2)
-    with col1:
-        filtro_mes = st.text_input("Filtrar por mes (YYYY-MM)", "")
-    with col2:
-        filtro_inquilino = st.selectbox("Filtrar por inquilino", [""] + obtener_inquilinos()[1:])
-    
-    # Obtener datos filtrados
-    pagos_df = obtener_pagos(
-        filtro_mes if filtro_mes and re.match(r"^\d{4}-\d{2}$", filtro_mes) else None,
-        filtro_inquilino if filtro_inquilino else None
-    )
-    
-    if pagos_df.empty:
-        st.info("No hay pagos registrados con los filtros seleccionados.")
-    else:
-        # Mostrar estadísticas
-        total = pagos_df['monto'].sum()
-        st.metric("Total filtrado", f"${total:,.2f}")
-        
-        # Mostrar tabla
-        st.dataframe(pagos_df, use_container_width=True)
-        
-        # Exportar a Excel
-        if st.button("📤 Exportar a Excel"):
-            with st.spinner('Generando archivo...'):
-                excel_file = pagos_df.to_excel("historial_pagos.xlsx", index=False)
-                with open("historial_pagos.xlsx", "rb") as f:
-                    st.download_button(
-                        label="⬇️ Descargar archivo",
-                        data=f,
-                        file_name=f"historial_pagos_{date.today()}.xlsx",
-                        mime="application/vnd.ms-excel"
-                    )
-
-# 8. FUNCIÓN PRINCIPAL
+# 9. FUNCIÓN PRINCIPAL ACTUALIZADA
 def main():
-    """Configuración principal de la aplicación."""
+    """Configuración principal mejorada de la aplicación."""
     st.set_page_config(
         page_title="Sistema de Pagos Arvelo",
         page_icon="💰",
@@ -400,12 +271,18 @@ def main():
         st.header("Menú Principal")
         menu = st.radio(
             "Seleccione una opción",
-            ["Registrar Pago", "Historial de Pagos", "Reporte de Morosidad"],
+            ["Registrar Pago", "Historial de Pagos", "Reporte de Morosidad", "Backup"],
             index=0
         )
         
         st.markdown("---")
         st.info(f"Versión: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        
+        # Backup manual desde el sidebar
+        if st.button("🛡️ Crear Backup Ahora"):
+            backup_path = hacer_backup()
+            if backup_path:
+                st.success(f"Backup creado en: {backup_path}")
     
     # Mostrar la sección correspondiente
     if menu == "Registrar Pago":
@@ -413,8 +290,57 @@ def main():
     elif menu == "Historial de Pagos":
         mostrar_historial_pagos()
     elif menu == "Reporte de Morosidad":
-        st.subheader("⚠️ Reporte de Morosidad")
-        st.info("Esta funcionalidad está en desarrollo. ¡Pronto estará disponible!")
+        st.subheader("⚠️ Reporte Detallado de Morosidad")
+        reporte = generar_reporte_morosidad()
+        
+        if not reporte.empty:
+            mostrar_metricas(reporte)
+            
+            # Filtros para el reporte
+            st.subheader("Filtros")
+            col1, col2 = st.columns(2)
+            with col1:
+                filtro_estado = st.multiselect(
+                    "Filtrar por estado",
+                    options=reporte['estado'].unique(),
+                    default=reporte['estado'].unique()
+                )
+            with col2:
+                filtro_planta = st.multiselect(
+                    "Filtrar por planta",
+                    options=reporte['planta'].unique(),
+                    default=reporte['planta'].unique()
+                )
+            
+            # Aplicar filtros
+            reporte_filtrado = reporte[
+                (reporte['estado'].isin(filtro_estado)) & 
+                (reporte['planta'].isin(filtro_planta))
+            ]
+            
+            st.dataframe(reporte_filtrado, use_container_width=True)
+            
+            # Exportar a Excel
+            if st.button("📤 Exportar Reporte a Excel"):
+                with st.spinner('Generando archivo...'):
+                    excel_file = reporte_filtrado.to_excel("reporte_morosidad.xlsx", index=False)
+                    with open("reporte_morosidad.xlsx", "rb") as f:
+                        st.download_button(
+                            label="⬇️ Descargar reporte",
+                            data=f,
+                            file_name=f"reporte_morosidad_{date.today()}.xlsx",
+                            mime="application/vnd.ms-excel"
+                        )
+        else:
+            st.info("No hay datos suficientes para generar el reporte de morosidad.")
+    
+    elif menu == "Backup":
+        st.subheader("🛡️ Gestión de Backups")
+        backup_path = hacer_backup()
+        if backup_path:
+            st.success(f"Último backup creado en: {backup_path}")
+        
+        st.info("Los backups automáticos se crean diariamente y al realizar operaciones críticas.")
 
 if __name__ == "__main__":
     main()
