@@ -13,16 +13,16 @@ from time import sleep
 def get_db_connection():
     """Establece y retorna una conexión a la base de datos SQLite"""
     try:
-        # Usar un path fijo relativo al directorio de ejecución del script
-        # Esto asegura que la base de datos sea persistente entre ejecuciones
-        # Se creará en el mismo directorio donde se ejecuta el script de Streamlit
         db_path = "pagos_arvelo.db"
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         return conn
     except sqlite3.Error as e:
-        st.error(f"Error al conectar con la base de datos: {e}")
-        st.stop()
+        # En caso de error crítico de conexión, imprimir en consola y terminar.
+        # Evitamos st.error() aquí ya que esta función se puede llamar
+        # en contextos donde Streamlit UI no está completamente lista.
+        print(f"ERROR CRÍTICO: No se pudo conectar con la base de datos: {e}")
+        st.stop() # Detiene la ejecución de la aplicación de Streamlit
 
 # 3. DATOS INICIALES
 def cargar_datos_iniciales():
@@ -133,19 +133,19 @@ def init_db():
                     '''INSERT INTO locales 
                     (numero_local, inquilino, planta, ramo_negocio, monto_alquiler, contrato)
                     VALUES (?, ?, ?, ?, ?, ?)''',
-                    (dato[0], dato[1], dato[2], dato[3], dato[4], dato[5]) # dato[4] es el monto de alquiler
+                    (dato[0], dato[1], dato[2], dato[3], dato[4], dato[5])
                 )
             conn.commit()
             
     except sqlite3.Error as e:
-        st.error(f"Error al inicializar la base de datos: {e}")
+        # Aquí también, si la inicialización falla críticamente, imprimimos y detenemos.
+        print(f"ERROR CRÍTICO: Error al inicializar la base de datos: {e}")
         if conn:
             conn.rollback()
-        st.stop()
+        st.stop() # Detiene la ejecución de la aplicación de Streamlit
     finally:
         if conn:
             conn.close()
-
 # 5. FUNCIONES DE CONSULTA
 @st.cache_data(ttl=3600)
 def obtener_inquilinos():
