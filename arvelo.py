@@ -148,6 +148,7 @@ def init_db():
         pass
 
 # 4. FUNCIONES DE CONSULTA
+@st.cache_data # Caching the result for better performance and consistency
 def obtener_inquilinos():
     """Retorna todos los inquilinos únicos."""
     conn = get_db_connection()
@@ -161,6 +162,7 @@ def obtener_inquilinos():
     # --- FIN NUEVO MENSAJE DE DEPURACIÓN ---
     return inquilinos_list
 
+@st.cache_data # Caching the result for better performance and consistency
 def obtener_locales_por_inquilino(inquilino):
     """Retorna solo los locales del inquilino especificado."""
     if not inquilino:
@@ -173,6 +175,7 @@ def obtener_locales_por_inquilino(inquilino):
     )
     return df['numero_local'].tolist()
 
+@st.cache_data # Caching the result for better performance and consistency
 def obtener_info_local(numero_local):
     """Retorna información de un local específico."""
     if not numero_local:
@@ -185,6 +188,7 @@ def obtener_info_local(numero_local):
     )
     return df.iloc[0] if not df.empty else None
 
+@st.cache_data # Caching the result for better performance and consistency
 def obtener_pagos():
     """Retorna todos los pagos registrados."""
     conn = get_db_connection()
@@ -209,6 +213,8 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
         ''', (local, inquilino, fecha_pago.strftime('%Y-%m-%d'), mes_abonado, monto, estado, observaciones))
         
         conn.commit()
+        # Invalidate the cache for obtener_pagos so the history updates
+        obtener_pagos.clear() 
         return True
     except Exception as e:
         st.error(f"Error al registrar el pago: {str(e)}")
@@ -228,11 +234,19 @@ def mostrar_formulario_pago():
         col1, col2 = st.columns(2)
         
         with col1:
+            # Determine the current index for inquilino_seleccionado
+            current_inquilino_index = 0
+            # Si hay un inquilino seleccionado previamente en el estado de la sesión
+            # y ese inquilino está en la lista actual de opciones, usa su índice.
+            if 'select_inquilino' in st.session_state and st.session_state['select_inquilino'] in inquilinos:
+                current_inquilino_index = inquilinos.index(st.session_state['select_inquilino'])
+
             # Selector de inquilino
             inquilino_seleccionado = st.selectbox(
                 "Seleccione Inquilino*",
                 options=inquilinos,
-                key="select_inquilino"
+                key="select_inquilino",
+                index=current_inquilino_index # Establece el índice dinámicamente
             )
             
             st.info(f"DEBUG: Inquilino seleccionado: '{inquilino_seleccionado}'")
@@ -253,7 +267,7 @@ def mostrar_formulario_pago():
                 # Check if a local was previously selected for this inquilino in the session state
                 # and if it's still in the current list of locales.
                 # This ensures the selection persists across re-runs if valid.
-                if st.session_state.get('select_local') in locales_del_inquilino:
+                if 'select_local' in st.session_state and st.session_state['select_local'] in locales_del_inquilino:
                     # If the previously selected local is in the current list, maintain it.
                     default_local_index = options_for_local_selectbox.index(st.session_state.get('select_local'))
                 else:
@@ -288,7 +302,7 @@ def mostrar_formulario_pago():
             mes_abonado = st.text_input(
                 "Mes Abonado* (YYYY-MM)",
                 placeholder="Ej: 2023-01",
-                help="Formato requerido: YYYY-MM (ej. 2023-01 para Enero 2023)"
+                help="Formato requerido: असाल-MM (ej. 2023-01 para Enero 2023)"
             )
             
             monto = st.number_input(
@@ -318,7 +332,7 @@ def mostrar_formulario_pago():
             elif not mes_abonado:
                 st.error("Por favor, introduzca el mes abonado.")
             elif not re.match(r"^\d{4}-\d{2}$", mes_abonado):
-                st.error("El formato del 'Mes Abonado' debe ser YYYY-MM (ej. 2023-01).")
+                st.error("El formato del 'Mes Abonado' debe ser असाल-MM (ej. 2023-01).")
             elif monto <= 0:
                 st.error("El monto debe ser mayor que cero.")
             else:
@@ -328,8 +342,13 @@ def mostrar_formulario_pago():
                 ):
                     st.success("✅ Pago registrado exitosamente!")
                     st.balloons()
-                    # Opcional: limpiar el formulario reiniciando la aplicación o los valores de los inputs
-                    # st.experimental_rerun() # Esto recarga toda la página de Streamlit
+                    # Invalidate the cache for selectboxes as data might have changed (e.g. new inquilino added)
+                    # Although, typically inquilinos won't change after a payment.
+                    # This is more for ensuring a clean state if a payment implies a new inquilino/local was just added via another mechanism.
+                    obtener_inquilinos.clear()
+                    obtener_locales_por_inquilino.clear()
+                    # Rerun the app to reflect the changes and clear the form
+                    st.experimental_rerun()
                 else:
                     st.error("Hubo un error al guardar el pago. Por favor, revise el log para más detalles.")
 
