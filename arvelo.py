@@ -278,6 +278,7 @@ def mostrar_formulario_pago():
             
             observaciones = st.text_area("Observaciones (opcional)")
         
+        # El botón de submit está CORRECTAMENTE implementado aquí dentro del 'with form:'
         submitted = form.form_submit_button("💾 Guardar Pago")
         
         if submitted:
@@ -300,8 +301,10 @@ def mostrar_formulario_pago():
                     st.success("✅ Pago registrado exitosamente!")
                     st.balloons()
                     # Opcional: limpiar el formulario reiniciando la aplicación o los valores de los inputs
-                    # Streamlit a menudo maneja esto con la recarga, pero si se quiere explícitamente:
                     # st.experimental_rerun() # Esto recarga toda la página de Streamlit
+                else:
+                    st.error("Hubo un error al guardar el pago. Por favor, revise el log para más detalles.")
+
 
 # 7. FUNCIÓN PARA MOSTRAR EL HISTORIAL DE PAGOS
 def mostrar_historial_pagos():
