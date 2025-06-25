@@ -1,4 +1,3 @@
-# 1. IMPORTACIONES
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -7,21 +6,18 @@ import tempfile
 import os
 import shutil
 
-# 2. CONFIGURACIÓN BASE DE DATOS
+# 1. CONFIGURACIÓN DE LA BASE DE DATOS
 def get_db_connection():
-    """Crea conexión a SQLite con manejo multi-hilo"""
+    """Crea y retorna una conexión a la base de datos SQLite"""
     temp_dir = tempfile.gettempdir()
-    db_path = os.path.join(temp_dir, "pagos_arvelo_v4.db")  # Cambiado a v4
+    db_path = os.path.join(temp_dir, "pagos_arvelo_final.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
-# 3. DATOS INICIALES (VERSIÓN CORREGIDA)
+# 2. DATOS INICIALES (VERIFICADOS SIN DUPLICADOS)
 def cargar_datos_iniciales():
-    """
-    Datos de ejemplo para inicializar la DB
-    Asegúrate de que los numero_local sean únicos
-    """
+    """Retorna datos iniciales garantizando que los números de local sean únicos"""
     return [
         ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
         ('LOCAL B', 'OSCAR DUQUE ECHEVERRIA', 'PB', 'LENCERIA', 350.0, 'OSCAR DUQUE ECHEVERRI'),
@@ -81,13 +77,14 @@ def cargar_datos_iniciales():
 
     ]
 
-# 4. INICIALIZACIÓN DB (VERSIÓN CORREGIDA)
+# 3. INICIALIZACIÓN DE LA BASE DE DATOS
 def init_db():
-    """Crea estructura inicial de la base de datos con manejo de duplicados"""
+    """Inicializa la estructura de la base de datos"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Tabla de locales
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS locales (
                 numero_local TEXT PRIMARY KEY,
@@ -98,6 +95,7 @@ def init_db():
             )
         ''')
         
+        # Tabla de pagos
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS pagos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -106,66 +104,200 @@ def init_db():
                 fecha_pago DATE NOT NULL,
                 mes_abonado TEXT NOT NULL,
                 monto REAL NOT NULL,
-                estado TEXT,
+                estado TEXT CHECK(estado IN ('Pagado', 'Parcial', 'Pendiente')),
                 observaciones TEXT,
                 FOREIGN KEY(numero_local) REFERENCES locales(numero_local)
             )
         ''')
         
-        # Verificar si hay datos existentes
+        # Insertar datos iniciales si la tabla está vacía
         if cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0] == 0:
             datos = cargar_datos_iniciales()
+            for dato in datos:
+                try:
+                    cursor.execute(
+                        '''INSERT INTO locales 
+                        (numero_local, inquilino, planta, ramo_negocio, contrato)
+                        VALUES (?, ?, ?, ?, ?)''',
+                        (dato[0], dato[1], dato[2], dato[3], dato[5])
+                except sqlite3.IntegrityError:
+                    st.warning(f"Local {dato[0]} ya existe, omitiendo...")
+                    continue
             
-            # Usar INSERT OR IGNORE para evitar duplicados
-            cursor.executemany(
-                '''INSERT OR IGNORE INTO locales 
-                (numero_local, inquilino, planta, ramo_negocio, contrato)
-                VALUES (?, ?, ?, ?, ?)''',
-                [(x[0], x[1], x[2], x[3], x[5]) for x in datos]
-            )
+            conn.commit()
+            st.success("Base de datos inicializada correctamente")
             
-            st.success("✅ Base de datos inicializada correctamente")
-        
-        conn.commit()
     except Exception as e:
         st.error(f"Error inicializando DB: {str(e)}")
     finally:
         conn.close()
 
-# ... (el resto de las funciones se mantienen igual que en la versión anterior)
+# 4. FUNCIONES DE CONSULTA
+def obtener_inquilinos():
+    """Retorna todos los inquilinos únicos"""
+    conn = get_db_connection()
+    try:
+        df = pd.read_sql(
+            "SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", 
+            conn
+        )
+        return [''] + df['inquilino'].tolist()
+    finally:
+        conn.close()
 
+def obtener_locales(inquilino=None):
+    """Retorna locales, opcionalmente filtrados por inquilino"""
+    conn = get_db_connection()
+    try:
+        if inquilino:
+            df = pd.read_sql(
+                "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
+                conn, params=(inquilino,)
+        else:
+            df = pd.read_sql(
+                "SELECT numero_local FROM locales ORDER BY numero_local",
+                conn)
+        return [''] + df['numero_local'].tolist()
+    finally:
+        conn.close()
+
+def obtener_info_local(numero_local):
+    """Retorna información de un local específico"""
+    if not numero_local:
+        return None
+        
+    conn = get_db_connection()
+    try:
+        df = pd.read_sql(
+            "SELECT * FROM locales WHERE numero_local = ?",
+            conn, params=(numero_local,))
+        return df.iloc[0] if not df.empty else None
+    finally:
+        conn.close()
+
+# 5. FUNCIÓN DE REGISTRO DE PAGOS
+def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
+    """Registra un nuevo pago en la base de datos"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO pagos (
+                numero_local, inquilino, fecha_pago, mes_abonado, 
+                monto, estado, observaciones
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Error registrando pago: {str(e)}")
+        return False
+    finally:
+        conn.close()
+
+# 6. FORMULARIO DE PAGOS (VERSIÓN CORREGIDA)
+def mostrar_formulario_pago():
+    """Muestra el formulario para registrar pagos"""
+    st.subheader("📝 Registrar Nuevo Pago")
+    
+    with st.form(key='form_pago'):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Selector de inquilino
+            inquilino_seleccionado = st.selectbox(
+                "Inquilino*",
+                options=obtener_inquilinos(),
+                index=0
+            )
+            
+            # Selector de local (se actualiza según inquilino seleccionado)
+            locales_disponibles = obtener_locales(inquilino_seleccionado) if inquilino_seleccionado else obtener_locales()
+            local_seleccionado = st.selectbox(
+                "Local*",
+                options=locales_disponibles,
+                index=0
+            )
+            
+            # Mostrar información del local seleccionado
+            if local_seleccionado:
+                info_local = obtener_info_local(local_seleccionado)
+                if info_local is not None:
+                    st.markdown(f"""
+                        **Planta:** {info_local['planta']}  
+                        **Ramo:** {info_local['ramo_negocio']}  
+                        **Contrato:** {info_local['contrato']}
+                    """)
+        
+        with col2:
+            fecha_pago = st.date_input(
+                "Fecha de Pago*",
+                value=date.today()
+            )
+            
+            mes_abonado = st.text_input(
+                "Mes Abonado* (YYYY-MM)",
+                placeholder="2023-01"
+            )
+            
+            monto = st.number_input(
+                "Monto*",
+                min_value=0.0,
+                value=350.0,
+                step=10.0
+            )
+            
+            estado = st.selectbox(
+                "Estado*",
+                options=["Pagado", "Parcial"]
+            )
+            
+            observaciones = st.text_area("Observaciones")
+        
+        submitted = st.form_submit_button("💾 Guardar Pago")
+    
+    # Validación y procesamiento del formulario
+    if submitted:
+        if not all([local_seleccionado, inquilino_seleccionado, mes_abonado]):
+            st.error("Por favor complete todos los campos obligatorios (*)")
+        else:
+            if registrar_pago(
+                local_seleccionado, inquilino_seleccionado,
+                fecha_pago, mes_abonado, monto, estado, observaciones
+            ):
+                st.success("✅ Pago registrado exitosamente!")
+                st.balloons()
+
+# 7. FUNCIÓN PRINCIPAL
 def main():
+    """Configuración principal de la aplicación"""
     st.set_page_config(
-        page_title="Sistema Pagos Arvelo",
+        page_title="Sistema de Pagos Arvelo",
         page_icon="💰",
         layout="wide"
     )
     
-    # Limpiar base de datos existente si es necesario (solo para desarrollo)
-    if st.sidebar.button("🔄 Reiniciar Base de Datos"):
-        try:
-            os.remove(os.path.join(tempfile.gettempdir(), "pagos_arvelo_v4.db"))
-            st.sidebar.success("Base de datos reiniciada")
-        except Exception as e:
-            st.sidebar.error(f"Error: {str(e)}")
+    init_db()  # Inicializar base de datos
     
-    init_db()
-    
-    st.title("💰 Sistema de Pagos - Arvelo")
+    st.title("💰 Sistema de Gestión de Pagos - Arvelo")
     st.markdown("---")
     
+    # Menú de navegación
     menu = st.sidebar.selectbox(
-        "Menú",
-        ["Registrar Pago", "Historial", "Morosidad"]
+        "Menú Principal",
+        ["Registrar Pago", "Historial de Pagos", "Reporte de Morosidad"]
     )
     
     if menu == "Registrar Pago":
         mostrar_formulario_pago()
-    elif menu == "Historial":
-        mostrar_historial()
-    elif menu == "Morosidad":
+    elif menu == "Historial de Pagos":
+        st.subheader("📜 Historial de Pagos")
+        st.write("Funcionalidad en desarrollo...")
+    elif menu == "Reporte de Morosidad":
         st.subheader("⚠️ Reporte de Morosidad")
-        st.write("Funcionalidad en desarrollo")
+        st.write("Funcionalidad en desarrollo...")
 
 if __name__ == "__main__":
     main()
