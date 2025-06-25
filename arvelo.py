@@ -155,7 +155,11 @@ def obtener_inquilinos():
         "SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", 
         conn
     )
-    return df['inquilino'].tolist()
+    inquilinos_list = df['inquilino'].tolist()
+    # --- NUEVO MENSAJE DE DEPURACIÓN ---
+    st.info(f"DEBUG: Inquilinos obtenidos de la DB por obtener_inquilinos(): {inquilinos_list}")
+    # --- FIN NUEVO MENSAJE DE DEPURACIÓN ---
+    return inquilinos_list
 
 def obtener_locales_por_inquilino(inquilino):
     """Retorna solo los locales del inquilino especificado."""
@@ -272,7 +276,7 @@ def mostrar_formulario_pago():
             mes_abonado = st.text_input(
                 "Mes Abonado* (YYYY-MM)",
                 placeholder="Ej: 2023-01",
-                help="Formato requerido: YYYY-MM (ej. 2023-01 para Enero 2023)"
+                help="Formato requerido: असाल-MM (ej. 2023-01 para Enero 2023)"
             )
             
             monto = st.number_input(
@@ -302,7 +306,7 @@ def mostrar_formulario_pago():
             elif not mes_abonado:
                 st.error("Por favor, introduzca el mes abonado.")
             elif not re.match(r"^\d{4}-\d{2}$", mes_abonado):
-                st.error("El formato del 'Mes Abonado' debe ser YYYY-MM (ej. 2023-01).")
+                st.error("El formato del 'Mes Abonado' debe ser असाल-MM (ej. 2023-01).")
             elif monto <= 0:
                 st.error("El monto debe ser mayor que cero.")
             else:
