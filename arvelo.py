@@ -119,7 +119,7 @@ def init_db():
                         '''INSERT OR IGNORE INTO locales 
                         (numero_local, inquilino, planta, ramo_negocio, contrato)
                         VALUES (?, ?, ?, ?, ?)''',
-                        (dato[0], dato[1], dato[2], dato[3], dato[5])
+                        (dato[0], dato[1], dato[2], dato[3], dato[5]))
                 except sqlite3.IntegrityError as e:
                     st.warning(f"Error insertando local {dato[0]}: {str(e)}")
                     continue
