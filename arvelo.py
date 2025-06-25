@@ -229,32 +229,44 @@ def mostrar_formulario_pago():
         
         with col1:
             # Selector de inquilino
-            # Se ha eliminado 'index=0' para permitir que Streamlit mantenga la selección del usuario.
             inquilino_seleccionado = st.selectbox(
                 "Seleccione Inquilino*",
                 options=inquilinos,
                 key="select_inquilino"
             )
             
-            # --- INICIO DE DEPURACIÓN EN FORMULARIO ---
             st.info(f"DEBUG: Inquilino seleccionado: '{inquilino_seleccionado}'")
-            # --- FIN DE DEPURACIÓN EN FORMULARIO ---
 
             # Obtener locales del inquilino seleccionado
             locales_del_inquilino = []
             if inquilino_seleccionado:
                 locales_del_inquilino = obtener_locales_por_inquilino(inquilino_seleccionado)
             
-            # --- INICIO DE DEPURACIÓN EN FORMULARIO ---
             st.info(f"DEBUG: Locales encontrados para '{inquilino_seleccionado}': {locales_del_inquilino}")
-            # --- FIN DE DEPURACIÓN EN FORMULARIO ---
 
+            # Determine options and default index for the local selectbox
+            options_for_local_selectbox = [""] + locales_del_inquilino
+            default_local_index = 0 # Default to empty string initially
+
+            # If there are actual locales, try to pre-select the first one
+            if locales_del_inquilino:
+                # Check if a local was previously selected for this inquilino in the session state
+                # and if it's still in the current list of locales.
+                # This ensures the selection persists across re-runs if valid.
+                if st.session_state.get('select_local') in locales_del_inquilino:
+                    # If the previously selected local is in the current list, maintain it.
+                    default_local_index = options_for_local_selectbox.index(st.session_state.get('select_local'))
+                else:
+                    # If no previous valid selection, or previously selected not in current list,
+                    # default to the first actual local (index 1 because index 0 is "")
+                    default_local_index = 1
+            
             # Selector de local
-            # Se ha eliminado 'index=0' para permitir que Streamlit mantenga la selección del usuario.
             local_seleccionado = st.selectbox(
                 "Seleccione Local*",
-                options=[""] + locales_del_inquilino, # Añadir opción vacía
-                key="select_local"
+                options=options_for_local_selectbox,
+                key="select_local",
+                index=default_local_index # Usa el índice determinado dinámicamente
             )
             
             # Mostrar información del local seleccionado
