@@ -229,11 +229,11 @@ def mostrar_formulario_pago():
         
         with col1:
             # Selector de inquilino
+            # Se ha eliminado 'index=0' para permitir que Streamlit mantenga la selección del usuario.
             inquilino_seleccionado = st.selectbox(
                 "Seleccione Inquilino*",
                 options=inquilinos,
-                key="select_inquilino",
-                index=0 # Por defecto, selecciona la opción vacía
+                key="select_inquilino"
             )
             
             # --- INICIO DE DEPURACIÓN EN FORMULARIO ---
@@ -250,11 +250,11 @@ def mostrar_formulario_pago():
             # --- FIN DE DEPURACIÓN EN FORMULARIO ---
 
             # Selector de local
+            # Se ha eliminado 'index=0' para permitir que Streamlit mantenga la selección del usuario.
             local_seleccionado = st.selectbox(
                 "Seleccione Local*",
                 options=[""] + locales_del_inquilino, # Añadir opción vacía
-                key="select_local",
-                index=0 # Por defecto, selecciona la opción vacía
+                key="select_local"
             )
             
             # Mostrar información del local seleccionado
@@ -276,7 +276,7 @@ def mostrar_formulario_pago():
             mes_abonado = st.text_input(
                 "Mes Abonado* (YYYY-MM)",
                 placeholder="Ej: 2023-01",
-                help="Formato requerido: असाल-MM (ej. 2023-01 para Enero 2023)"
+                help="Formato requerido: YYYY-MM (ej. 2023-01 para Enero 2023)"
             )
             
             monto = st.number_input(
@@ -306,7 +306,7 @@ def mostrar_formulario_pago():
             elif not mes_abonado:
                 st.error("Por favor, introduzca el mes abonado.")
             elif not re.match(r"^\d{4}-\d{2}$", mes_abonado):
-                st.error("El formato del 'Mes Abonado' debe ser असाल-MM (ej. 2023-01).")
+                st.error("El formato del 'Mes Abonado' debe ser YYYY-MM (ej. 2023-01).")
             elif monto <= 0:
                 st.error("El monto debe ser mayor que cero.")
             else:
