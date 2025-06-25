@@ -8,18 +8,18 @@ import re
 from time import sleep
 
 # 1. CONFIGURACIÓN DE LA BASE DE DATOS
-@st.cache_resource(ttl=3600)
+@st.cache_resource
 def get_db_connection():
-    """Conexión persistente a la base de datos SQLite."""
+    """Crea y retorna una conexión persistente a la base de datos SQLite."""
     temp_dir = tempfile.gettempdir()
-    db_path = os.path.join(temp_dir, "pagos_arvelo_optimized.db")
+    db_path = os.path.join(temp_dir, "pagos_arvelo_final_corregido.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
-# 2. DATOS INICIALES
+# 2. DATOS INICIALES VERIFICADOS
 def cargar_datos_iniciales():
-    """Datos iniciales de locales."""
+    """Retorna datos iniciales con todos los locales correctamente asociados."""
     return [
         ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
         ('LOCAL B', 'OSCAR DUQUE ECHEVERRIA', 'PB', 'LENCERIA', 350.0, 'OSCAR DUQUE ECHEVERRI'),
@@ -79,9 +79,9 @@ def cargar_datos_iniciales():
 
     ]
 
-# 3. INICIALIZACIÓN DE LA BASE DE DATOS
+# 3. INICIALIZACIÓN DE LA BASE DE DATOS CON VERIFICACIÓN
 def init_db():
-    """Inicializa la estructura de la base de datos."""
+    """Inicializa la estructura de la base de datos con verificación de datos."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -116,72 +116,209 @@ def init_db():
         if cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0] == 0:
             with st.spinner('Cargando datos iniciales...'):
                 for dato in cargar_datos_iniciales():
-                    cursor.execute(
-                        '''INSERT OR IGNORE INTO locales 
-                        (numero_local, inquilino, planta, ramo_negocio, contrato)
-                        VALUES (?, ?, ?, ?, ?)''',
-                        (dato[0], dato[1], dato[2], dato[3], dato[5])
-                    )
+                    try:
+                        cursor.execute(
+                            '''INSERT OR IGNORE INTO locales 
+                            (numero_local, inquilino, planta, ramo_negocio, contrato)
+                            VALUES (?, ?, ?, ?, ?)''',
+                            (dato[0], dato[1], dato[2], dato[3], dato[5])
+                        )
+                    except Exception as e:
+                        st.error(f"Error al insertar local {dato[0]}: {str(e)}")
                 conn.commit()
+                
+                # Verificación de datos insertados
+                st.success("Datos iniciales cargados. Verificando...")
+                locales_count = cursor.execute("SELECT COUNT(*) FROM locales").fetchone()[0]
+                st.write(f"Total de locales cargados: {locales_count}")
+                
+                # Mostrar muestra de datos para verificación
+                sample = pd.read_sql("SELECT * FROM locales LIMIT 5", conn)
+                st.write("Muestra de datos:", sample)
+        
     except Exception as e:
-        st.error(f"Error al inicializar la base de datos: {str(e)}")
+        st.error(f"Error crítico al inicializar la base de datos: {str(e)}")
         st.stop()
 
-# 4. FUNCIONES DE CONSULTA OPTIMIZADAS
-@st.cache_data(ttl=300)
+# 4. FUNCIONES DE CONSULTA CON VERIFICACIÓN
 def obtener_inquilinos():
-    """Obtiene todos los inquilinos únicos."""
+    """Retorna todos los inquilinos únicos con verificación."""
     conn = get_db_connection()
-    df = pd.read_sql("SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", conn)
-    return [""] + df['inquilino'].tolist()
+    try:
+        df = pd.read_sql(
+            "SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", 
+            conn
+        )
+        # Verificación de datos obtenidos
+        if df.empty:
+            st.warning("No se encontraron inquilinos en la base de datos")
+            return [""]
+        
+        return [""] + df['inquilino'].tolist()
+    except Exception as e:
+        st.error(f"Error al obtener inquilinos: {str(e)}")
+        return [""]
 
-@st.cache_data(ttl=300)
 def obtener_locales_por_inquilino(inquilino):
-    """Obtiene locales de un inquilino específico."""
+    """Retorna locales del inquilino especificado con verificación."""
     if not inquilino or not inquilino.strip():
         return []
         
     conn = get_db_connection()
-    df = pd.read_sql(
-        "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
-        conn, params=(inquilino,)
-    )
-    return df['numero_local'].tolist()
-
-@st.cache_data(ttl=300)
-def obtener_info_local(numero_local):
-    """Obtiene información de un local específico."""
-    if not numero_local:
-        return None
+    try:
+        # Consulta exacta primero
+        exact_df = pd.read_sql(
+            "SELECT numero_local FROM locales WHERE inquilino = ? ORDER BY numero_local",
+            conn, params=(inquilino,)
+        )
         
-    conn = get_db_connection()
-    df = pd.read_sql(
-        "SELECT * FROM locales WHERE numero_local = ?",
-        conn, params=(numero_local,)
-    )
-    return df.iloc[0] if not df.empty else None
+        if not exact_df.empty:
+            return exact_df['numero_local'].tolist()
+        
+        # Si no hay resultados, buscar por similitud
+        similar_df = pd.read_sql(
+            "SELECT numero_local FROM locales WHERE inquilino LIKE ? ORDER BY numero_local",
+            conn, params=(f"%{inquilino}%",)
+        )
+        
+        if not similar_df.empty:
+            st.warning(f"Usando resultados similares para: {inquilino}")
+            return similar_df['numero_local'].tolist()
+            
+        return []
+    except Exception as e:
+        st.error(f"Error al obtener locales: {str(e)}")
+        return []
 
-@st.cache_data(ttl=300)
-def obtener_pagos(filtro_mes=None, filtro_inquilino=None):
-    """Obtiene pagos con filtros opcionales."""
-    conn = get_db_connection()
-    query = "SELECT * FROM pagos WHERE 1=1"
-    params = []
+# 5. FORMULARIO DE PAGOS CON MECANISMOS DE DEBUG
+def mostrar_formulario_pago():
+    """Muestra el formulario para registrar pagos con verificación completa."""
+    st.subheader("📝 Registrar Nuevo Pago")
     
-    if filtro_mes:
-        query += " AND mes_abonado = ?"
-        params.append(filtro_mes)
+    # Obtener lista de inquilinos con verificación
+    inquilinos = obtener_inquilinos()
+    
+    # Debug: Mostrar inquilinos disponibles
+    st.write(f"DEBUG: Inquilinos disponibles ({len(inquilinos)-1}):", inquilinos[1:])
+    
+    with st.form(key='form_pago', clear_on_submit=True):
+        col1, col2 = st.columns(2)
         
-    if filtro_inquilino:
-        query += " AND inquilino = ?"
-        params.append(filtro_inquilino)
+        with col1:
+            # Selector de inquilino
+            selected_inquilino = st.selectbox(
+                "Seleccione Inquilino*",
+                options=inquilinos,
+                index=0,
+                key='select_inquilino'
+            )
+            
+            # Debug: Mostrar inquilino seleccionado
+            st.write(f"DEBUG: Inquilino seleccionado: '{selected_inquilino}'")
+            
+            # Obtener locales para el inquilino seleccionado
+            locales_disponibles = [""]
+            if selected_inquilino:
+                locales = obtener_locales_por_inquilino(selected_inquilino)
+                
+                # Debug: Mostrar resultados de la consulta
+                st.write(f"DEBUG: Locales encontrados ({len(locales)}):", locales)
+                
+                if not locales:
+                    st.warning("No se encontraron locales para este inquilino")
+                    # Mostrar posibles coincidencias en la base de datos
+                    conn = get_db_connection()
+                    similar = pd.read_sql(
+                        "SELECT DISTINCT inquilino FROM locales WHERE inquilino LIKE ? LIMIT 5",
+                        conn, params=(f"%{selected_inquilino}%",)
+                    )
+                    if not similar.empty:
+                        st.info("Posibles coincidencias similares:")
+                        st.write(similar)
+                else:
+                    locales_disponibles += locales
+            
+            # Selector de local
+            selected_local = st.selectbox(
+                "Seleccione Local*",
+                options=locales_disponibles,
+                index=0,
+                key='select_local'
+            )
+            
+            # Mostrar información del local seleccionado
+            if selected_local:
+                info_local = obtener_info_local(selected_local)
+                if info_local:
+                    st.info(f"""
+                        **Planta:** {info_local['planta']}  
+                        **Ramo:** {info_local['ramo_negocio']}  
+                        **Contrato:** {info_local['contrato']}
+                    """)
+                else:
+                    st.warning("No se encontró información detallada para este local")
         
-    query += " ORDER BY fecha_pago DESC, id DESC"
-    return pd.read_sql(query, conn, params=params if params else None)
+        with col2:
+            fecha_pago = st.date_input("Fecha de Pago*", value=date.today())
+            
+            mes_abonado = st.text_input(
+                "Mes Abonado* (YYYY-MM)",
+                placeholder="Ej: 2023-01",
+                help="Formato requerido: YYYY-MM (ej. 2023-01 para Enero 2023)"
+            )
+            
+            monto = st.number_input(
+                "Monto* (USD)",
+                min_value=0.0,
+                value=0.0,
+                step=1.0,
+                format="%.2f"
+            )
+            
+            estado = st.selectbox(
+                "Estado*",
+                options=["Pagado", "Parcial", "Pendiente"]
+            )
+            
+            observaciones = st.text_area("Observaciones (opcional)")
+        
+        submitted = st.form_submit_button("💾 Guardar Pago")
+        
+        if submitted:
+            # Validaciones
+            if not selected_inquilino:
+                st.error("Por favor, seleccione un inquilino")
+            elif not selected_local:
+                st.error("Por favor, seleccione un local")
+            elif not mes_abonado or not re.match(r"^\d{4}-\d{2}$", mes_abonado):
+                st.error("El formato del 'Mes Abonado' debe ser YYYY-MM (ej. 2023-01)")
+            elif monto <= 0:
+                st.error("El monto debe ser mayor que cero")
+            else:
+                # Confirmación antes de guardar
+                with st.expander("📋 Ver resumen del pago", expanded=True):
+                    st.write(f"**Inquilino:** {selected_inquilino}")
+                    st.write(f"**Local:** {selected_local}")
+                    st.write(f"**Fecha Pago:** {fecha_pago.strftime('%Y-%m-%d')}")
+                    st.write(f"**Mes Abonado:** {mes_abonado}")
+                    st.write(f"**Monto:** ${monto:.2f}")
+                    st.write(f"**Estado:** {estado}")
+                    if observaciones:
+                        st.write(f"**Observaciones:** {observaciones}")
+                
+                if st.checkbox("✅ Confirmo que los datos son correctos"):
+                    with st.spinner('Guardando pago...'):
+                        if registrar_pago(
+                            selected_local, selected_inquilino,
+                            fecha_pago, mes_abonado, monto, estado, observaciones
+                        ):
+                            st.success("✅ Pago registrado exitosamente!")
+                            sleep(2)
+                            st.experimental_rerun()
 
-# 5. FUNCIÓN DE REGISTRO DE PAGOS
+# 6. FUNCIÓN PARA REGISTRAR PAGOS
 def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
-    """Registra un nuevo pago en la base de datos."""
+    """Registra un nuevo pago con manejo de errores mejorado."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
@@ -194,95 +331,16 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
         ''', (local, inquilino, fecha_pago.strftime('%Y-%m-%d'), mes_abonado, monto, estado, observaciones))
         
         conn.commit()
-        st.cache_data.clear()
+        st.cache_data.clear()  # Limpiar cachés para actualizar vistas
         return True
     except Exception as e:
         st.error(f"Error al registrar el pago: {str(e)}")
         conn.rollback()
         return False
 
-# 6. FORMULARIO DE PAGOS OPTIMIZADO
-def mostrar_formulario_pago():
-    """Muestra el formulario para registrar pagos."""
-    st.subheader("📝 Registrar Nuevo Pago")
-    
-    # Inicializar estado de sesión
-    if 'current_inquilino' not in st.session_state:
-        st.session_state.current_inquilino = ""
-    
-    with st.form(key='form_pago', clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Selector de inquilino
-            inquilinos = obtener_inquilinos()
-            selected_inquilino = st.selectbox(
-                "Seleccione Inquilino*",
-                options=inquilinos,
-                index=0,
-                key='inquilino_select'
-            )
-            
-            # Actualizar locales cuando cambia el inquilino
-            locales_disponibles = [""]
-            if selected_inquilino:
-                if selected_inquilino != st.session_state.current_inquilino:
-                    obtener_locales_por_inquilino.clear()
-                    st.session_state.current_inquilino = selected_inquilino
-                
-                locales = obtener_locales_por_inquilino(selected_inquilino)
-                locales_disponibles += locales
-            
-            # Selector de local
-            selected_local = st.selectbox(
-                "Seleccione Local*",
-                options=locales_disponibles,
-                index=0,
-                key='local_select'
-            )
-            
-            # Mostrar información del local
-            if selected_local:
-                info_local = obtener_info_local(selected_local)
-                if info_local:
-                    st.info(f"""
-                        **Planta:** {info_local['planta']}  
-                        **Ramo:** {info_local['ramo_negocio']}  
-                        **Contrato:** {info_local['contrato']}
-                    """)
-        
-        with col2:
-            fecha_pago = st.date_input("Fecha de Pago*", value=date.today())
-            mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="Ej: 2023-01")
-            monto = st.number_input("Monto* (USD)", min_value=0.0, value=0.0, step=1.0, format="%.2f")
-            estado = st.selectbox("Estado*", options=["Pagado", "Parcial", "Pendiente"])
-            observaciones = st.text_area("Observaciones (opcional)")
-        
-        submitted = st.form_submit_button("💾 Guardar Pago")
-        
-        if submitted:
-            # Validaciones
-            if not selected_inquilino:
-                st.error("Seleccione un inquilino")
-            elif not selected_local:
-                st.error("Seleccione un local")
-            elif not mes_abonado or not re.match(r"^\d{4}-\d{2}$", mes_abonado):
-                st.error("El mes abonado debe tener formato YYYY-MM")
-            elif monto <= 0:
-                st.error("El monto debe ser mayor que cero")
-            else:
-                with st.spinner('Guardando pago...'):
-                    if registrar_pago(
-                        selected_local, selected_inquilino,
-                        fecha_pago, mes_abonado, monto, estado, observaciones
-                    ):
-                        st.success("✅ Pago registrado exitosamente!")
-                        sleep(1)
-                        st.experimental_rerun()
-
-# 7. HISTORIAL DE PAGOS MEJORADO
+# 7. HISTORIAL DE PAGOS CON FILTROS
 def mostrar_historial_pagos():
-    """Muestra el historial de pagos con filtros."""
+    """Muestra el historial de pagos con opciones de filtrado."""
     st.subheader("📜 Historial de Pagos")
     
     # Filtros
@@ -292,7 +350,7 @@ def mostrar_historial_pagos():
     with col2:
         filtro_inquilino = st.selectbox("Filtrar por inquilino", [""] + obtener_inquilinos()[1:])
     
-    # Obtener datos
+    # Obtener datos filtrados
     pagos_df = obtener_pagos(
         filtro_mes if filtro_mes and re.match(r"^\d{4}-\d{2}$", filtro_mes) else None,
         filtro_inquilino if filtro_inquilino else None
@@ -301,7 +359,12 @@ def mostrar_historial_pagos():
     if pagos_df.empty:
         st.info("No hay pagos registrados con los filtros seleccionados.")
     else:
-        st.dataframe(pagos_df, use_container_width=True, hide_index=True)
+        # Mostrar estadísticas
+        total = pagos_df['monto'].sum()
+        st.metric("Total filtrado", f"${total:,.2f}")
+        
+        # Mostrar tabla
+        st.dataframe(pagos_df, use_container_width=True)
         
         # Exportar a Excel
         if st.button("📤 Exportar a Excel"):
@@ -315,46 +378,7 @@ def mostrar_historial_pagos():
                         mime="application/vnd.ms-excel"
                     )
 
-# 8. REPORTE DE MOROSIDAD
-def mostrar_reporte_morosidad():
-    """Muestra un reporte de morosidad."""
-    st.subheader("⚠️ Reporte de Morosidad")
-    
-    conn = get_db_connection()
-    try:
-        meses_df = pd.read_sql(
-            "SELECT DISTINCT mes_abonado FROM pagos ORDER BY mes_abonado DESC",
-            conn
-        )
-        
-        if meses_df.empty:
-            st.info("No hay datos suficientes para generar reportes.")
-            return
-            
-        mes_seleccionado = st.selectbox("Seleccione mes para reporte", meses_df['mes_abonado'])
-        
-        if st.button("Generar Reporte"):
-            with st.spinner('Analizando datos...'):
-                morosos_df = pd.read_sql('''
-                    SELECT l.numero_local, l.inquilino, l.planta, l.ramo_negocio
-                    FROM locales l
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM pagos p 
-                        WHERE p.numero_local = l.numero_local 
-                        AND p.mes_abonado = ?
-                        AND p.estado = 'Pagado'
-                    )
-                    ORDER BY l.inquilino
-                ''', conn, params=(mes_seleccionado,))
-                
-                if morosos_df.empty:
-                    st.success(f"¡Todos los locales pagaron en {mes_seleccionado}!")
-                else:
-                    st.dataframe(morosos_df, use_container_width=True)
-    except Exception as e:
-        st.error(f"Error al generar reporte: {str(e)}")
-
-# 9. INTERFAZ PRINCIPAL
+# 8. FUNCIÓN PRINCIPAL
 def main():
     """Configuración principal de la aplicación."""
     st.set_page_config(
@@ -379,16 +403,18 @@ def main():
             ["Registrar Pago", "Historial de Pagos", "Reporte de Morosidad"],
             index=0
         )
+        
         st.markdown("---")
         st.info(f"Versión: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     
-    # Mostrar sección correspondiente
+    # Mostrar la sección correspondiente
     if menu == "Registrar Pago":
         mostrar_formulario_pago()
     elif menu == "Historial de Pagos":
         mostrar_historial_pagos()
     elif menu == "Reporte de Morosidad":
-        mostrar_reporte_morosidad()
+        st.subheader("⚠️ Reporte de Morosidad")
+        st.info("Esta funcionalidad está en desarrollo. ¡Pronto estará disponible!")
 
 if __name__ == "__main__":
     main()
