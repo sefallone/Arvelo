@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime, date
-import tempfile
+import tempfile # Ya no se usa para la DB, pero se mantiene si hay otros usos
 import os
 import re
 from time import sleep
@@ -13,8 +13,10 @@ from time import sleep
 def get_db_connection():
     """Establece y retorna una conexión a la base de datos SQLite"""
     try:
-        temp_dir = tempfile.gettempdir()
-        db_path = os.path.join(temp_dir, "pagos_arvelo.db")
+        # Usar un path fijo relativo al directorio de ejecución del script
+        # Esto asegura que la base de datos sea persistente entre ejecuciones
+        # Se creará en el mismo directorio donde se ejecuta el script de Streamlit
+        db_path = "pagos_arvelo.db"
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         return conn
@@ -24,7 +26,9 @@ def get_db_connection():
 
 # 3. DATOS INICIALES
 def cargar_datos_iniciales():
-    """Retorna los datos iniciales para poblar la base de datos"""
+    """Retorna los datos iniciales para poblar la base de datos
+    Formato: (numero_local, inquilino, planta, ramo_negocio, monto_alquiler, contrato)
+    """
     return [
         ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
         ('LOCAL B', 'OSCAR DUQUE ECHEVERRIA', 'PB', 'LENCERIA', 350.0, 'OSCAR DUQUE ECHEVERRI'),
@@ -81,7 +85,6 @@ def cargar_datos_iniciales():
         ('LOCAL 37', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
         ('LOCAL 38', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR'),
         ('LOCAL 39', 'ELY SAUL QUINTERO CUELLAE', 'MEZZANINA 2', '', 16.67, 'ELY SAUL QUINTERO CUELLAR')
-
     ]
 
 # 4. INICIALIZACIÓN DE LA BASE DE DATOS
@@ -92,13 +95,14 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Crear tabla de locales
+        # Crear tabla de locales (con la nueva columna 'monto_alquiler')
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS locales (
                 numero_local TEXT PRIMARY KEY,
                 inquilino TEXT NOT NULL,
                 planta TEXT,
                 ramo_negocio TEXT,
+                monto_alquiler REAL, -- Nueva columna para el monto del alquiler base
                 contrato TEXT
             )
         ''')
@@ -123,13 +127,13 @@ def init_db():
         count = cursor.fetchone()[0]
         
         if count == 0:
-            # Insertar datos iniciales
+            # Insertar datos iniciales (ahora incluyendo monto_alquiler)
             for dato in cargar_datos_iniciales():
                 cursor.execute(
                     '''INSERT INTO locales 
-                    (numero_local, inquilino, planta, ramo_negocio, contrato)
-                    VALUES (?, ?, ?, ?, ?)''',
-                    (dato[0], dato[1], dato[2], dato[3], dato[5])
+                    (numero_local, inquilino, planta, ramo_negocio, monto_alquiler, contrato)
+                    VALUES (?, ?, ?, ?, ?, ?)''',
+                    (dato[0], dato[1], dato[2], dato[3], dato[4], dato[5]) # dato[4] es el monto de alquiler
                 )
             conn.commit()
             
@@ -178,6 +182,24 @@ def obtener_locales_por_inquilino(inquilino):
         if conn:
             conn.close()
 
+def obtener_monto_alquiler_local(numero_local):
+    """Retorna el monto de alquiler base de un local específico."""
+    if not numero_local:
+        return 0.0 # Valor por defecto si no hay local seleccionado
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT monto_alquiler FROM locales WHERE numero_local = ?", (numero_local,))
+        result = cursor.fetchone()
+        return result['monto_alquiler'] if result and result['monto_alquiler'] is not None else 0.0
+    except Exception as e:
+        st.error(f"Error al obtener el monto de alquiler del local: {e}")
+        return 0.0
+    finally:
+        if conn:
+            conn.close()
+
 # 6. FUNCIONES PARA REGISTRAR PAGOS
 def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
     """Registra un nuevo pago en la base de datos"""
@@ -215,22 +237,41 @@ def mostrar_formulario_pago():
             selected_inquilino = st.selectbox(
                 "Seleccione Inquilino*",
                 options=obtener_inquilinos(),
-                index=0
+                index=0,
+                key="inquilino_selector" # Añadir key para mantener el estado
             )
             
-            # Selector de local
+            # Selector de local basado en el inquilino
             locales_disponibles = [""] + obtener_locales_por_inquilino(selected_inquilino)
+            
+            # Intentar mantener el local previamente seleccionado si aún es válido
+            # Usamos st.session_state para mantener el valor del selectbox
+            if 'selected_local_value' not in st.session_state:
+                st.session_state.selected_local_value = ""
+
+            try:
+                current_local_index = locales_disponibles.index(st.session_state.selected_local_value)
+            except ValueError:
+                current_local_index = 0 # Reiniciar si el local anterior ya no es válido para el inquilino
+
             selected_local = st.selectbox(
                 "Seleccione Local*",
                 options=locales_disponibles,
-                index=0
+                index=current_local_index,
+                key="local_selector" # Añadir key para mantener el estado
             )
+            # Actualizar el valor del local seleccionado en el estado de la sesión
+            st.session_state.selected_local_value = selected_local
+
+        # Obtener el monto de alquiler sugerido para el local seleccionado
+        monto_sugerido = obtener_monto_alquiler_local(selected_local)
             
         with col2:
             # Campos del formulario
             fecha_pago = st.date_input("Fecha de Pago*", value=date.today())
             mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="2023-01")
-            monto = st.number_input("Monto* (USD)", min_value=0.0, value=0.0, step=1.0)
+            # Usar el monto sugerido como valor inicial
+            monto = st.number_input("Monto* (USD)", min_value=0.0, value=monto_sugerido, step=1.0)
             estado = st.selectbox("Estado*", ["Pagado", "Parcial", "Pendiente"])
             observaciones = st.text_area("Observaciones")
         
@@ -247,8 +288,11 @@ def mostrar_formulario_pago():
                     fecha_pago, mes_abonado, monto, estado, observaciones
                 ):
                     st.success("✅ Pago registrado exitosamente!")
+                    # Limpiar caches para que los historiales y selects se actualicen
+                    st.cache_data.clear()
+                    st.cache_resource.clear()
                     sleep(2)
-                    st.experimental_rerun()
+                    st.experimental_rerun() # Recargar la página para refrescar el formulario y los historiales
 
 # 8. INTERFAZ DE USUARIO - HISTORIAL
 def mostrar_historial_pagos():
