@@ -12,17 +12,22 @@ from time import sleep
 @st.cache_resource
 def get_db_connection():
     """Establece y retorna una conexión a la base de datos SQLite"""
+    conn = None # Initialize conn to None
     try:
         db_path = "pagos_arvelo.db"
+        # Ensure the directory exists if you plan to put it in a subdirectory
+        # For current working directory, this is usually not needed unless it's a specific mount.
+        # os.makedirs(os.path.dirname(db_path), exist_ok=True) # If using a subfolder like 'data/pagos_arvelo.db'
+
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         return conn
     except sqlite3.Error as e:
-        # En caso de error crítico de conexión, imprimir en consola y terminar.
-        # Evitamos st.error() aquí ya que esta función se puede llamar
-        # en contextos donde Streamlit UI no está completamente lista.
-        print(f"ERROR CRÍTICO: No se pudo conectar con la base de datos: {e}")
+        print(f"ERROR CRÍTICO (get_db_connection): No se pudo conectar/crear la base de datos en {db_path}. Error: {e}")
+        st.error(f"Error crítico: No se pudo conectar a la base de datos. Por favor, contacte a soporte. Detalles: {e}")
         st.stop() # Detiene la ejecución de la aplicación de Streamlit
+    # No need for finally here, the caller (init_db or others) will handle closing if this returns successfully.
+
 
 # 3. DATOS INICIALES
 def cargar_datos_iniciales():
@@ -90,9 +95,12 @@ def cargar_datos_iniciales():
 # 4. INICIALIZACIÓN DE LA BASE DE DATOS
 def init_db():
     """Inicializa la estructura de la base de datos"""
-    conn = None
+    conn = None # Ensure conn is initialized to None
     try:
-        conn = get_db_connection()
+        conn = get_db_connection() # This function handles its own errors and st.stop()
+        if conn is None: # Redundant check if get_db_connection already calls st.stop()
+            st.stop() # Should not be reached if get_db_connection works as expected
+
         cursor = conn.cursor()
         
         # Crear tabla de locales (con la nueva columna 'monto_alquiler')
@@ -138,13 +146,19 @@ def init_db():
             conn.commit()
             
     except sqlite3.Error as e:
-        # Aquí también, si la inicialización falla críticamente, imprimimos y detenemos.
-        print(f"ERROR CRÍTICO: Error al inicializar la base de datos: {e}")
+        print(f"ERROR CRÍTICO (init_db): Error al inicializar la base de datos. Error: {e}")
+        if conn:
+            conn.rollback() # Attempt rollback if connection exists
+        st.error(f"Error crítico: Falló la inicialización de la base de datos. Detalles: {e}")
+        st.stop() # Stop the app
+    except Exception as e: # Catch any other unexpected errors during DB init
+        print(f"ERROR INESPERADO (init_db): {e}")
         if conn:
             conn.rollback()
-        st.stop() # Detiene la ejecución de la aplicación de Streamlit
+        st.error(f"Error inesperado durante la inicialización. Detalles: {e}")
+        st.stop()
     finally:
-        if conn:
+        if conn: # Only try to close if conn was successfully assigned
             conn.close()
 # 5. FUNCIONES DE CONSULTA
 @st.cache_data(ttl=3600)
