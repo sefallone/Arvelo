@@ -3,7 +3,6 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime, date
-import tempfile # Ya no se usa para la DB, pero se mantiene si hay otros usos
 import os
 import re
 from time import sleep
@@ -11,29 +10,23 @@ from time import sleep
 # 2. CONEXIÓN A LA BASE DE DATOS
 @st.cache_resource
 def get_db_connection():
-    """Establece y retorna una conexión a la base de datos SQLite"""
-    conn = None # Initialize conn to None
+    """Establece y retorna una conexión a la base de datos SQLite.
+    Esta conexión es manejada por st.cache_resource y NO debe ser cerrada manualmente
+    por las funciones que la obtienen, sino solo por Streamlit al finalizar la app.
+    """
     try:
         db_path = "pagos_arvelo.db"
-        # Ensure the directory exists if you plan to put it in a subdirectory
-        # For current working directory, this is usually not needed unless it's a specific mount.
-        # os.makedirs(os.path.dirname(db_path), exist_ok=True) # If using a subfolder like 'data/pagos_arvelo.db'
-
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         return conn
     except sqlite3.Error as e:
         print(f"ERROR CRÍTICO (get_db_connection): No se pudo conectar/crear la base de datos en {db_path}. Error: {e}")
-        st.error(f"Error crítico: No se pudo conectar a la base de datos. Por favor, contacte a soporte. Detalles: {e}")
-        st.stop() # Detiene la ejecución de la aplicación de Streamlit
-    # No need for finally here, the caller (init_db or others) will handle closing if this returns successfully.
+        st.error(f"¡Error crítico! No se pudo iniciar la base de datos. Por favor, contacta a soporte. Detalles: {e}")
+        st.stop()
 
-
-# 3. DATOS INICIALES
+# 3. DATOS INICIALES (sin cambios)
 def cargar_datos_iniciales():
-    """Retorna los datos iniciales para poblar la base de datos
-    Formato: (numero_local, inquilino, planta, ramo_negocio, monto_alquiler, contrato)
-    """
+    """Retorna los datos iniciales para poblar la base de datos"""
     return [
         ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
         ('LOCAL B', 'OSCAR DUQUE ECHEVERRIA', 'PB', 'LENCERIA', 350.0, 'OSCAR DUQUE ECHEVERRI'),
@@ -94,23 +87,21 @@ def cargar_datos_iniciales():
 
 # 4. INICIALIZACIÓN DE LA BASE DE DATOS
 def init_db():
-    """Inicializa la estructura de la base de datos"""
-    conn = None # Ensure conn is initialized to None
+    """Inicializa la estructura de la base de datos (tablas y datos iniciales si no existen).
+    Obtiene la conexión cacheada, realiza las operaciones y NO cierra la conexión.
+    """
     try:
-        conn = get_db_connection() # This function handles its own errors and st.stop()
-        if conn is None: # Redundant check if get_db_connection already calls st.stop()
-            st.stop() # Should not be reached if get_db_connection works as expected
-
+        conn = get_db_connection() # Obtiene la conexión cacheada
         cursor = conn.cursor()
         
-        # Crear tabla de locales (con la nueva columna 'monto_alquiler')
+        # Crear tabla de locales
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS locales (
                 numero_local TEXT PRIMARY KEY,
                 inquilino TEXT NOT NULL,
                 planta TEXT,
                 ramo_negocio TEXT,
-                monto_alquiler REAL, -- Nueva columna para el monto del alquiler base
+                monto_alquiler REAL,
                 contrato TEXT
             )
         ''')
@@ -135,7 +126,7 @@ def init_db():
         count = cursor.fetchone()[0]
         
         if count == 0:
-            # Insertar datos iniciales (ahora incluyendo monto_alquiler)
+            # Insertar datos iniciales
             for dato in cargar_datos_iniciales():
                 cursor.execute(
                     '''INSERT INTO locales 
@@ -143,28 +134,29 @@ def init_db():
                     VALUES (?, ?, ?, ?, ?, ?)''',
                     (dato[0], dato[1], dato[2], dato[3], dato[4], dato[5])
                 )
-            conn.commit()
+            conn.commit() # Confirma los cambios de inserción
             
     except sqlite3.Error as e:
-        print(f"ERROR CRÍTICO (init_db): Error al inicializar la base de datos. Error: {e}")
-        if conn:
-            conn.rollback() # Attempt rollback if connection exists
-        st.error(f"Error crítico: Falló la inicialización de la base de datos. Detalles: {e}")
-        st.stop() # Stop the app
-    except Exception as e: # Catch any other unexpected errors during DB init
-        print(f"ERROR INESPERADO (init_db): {e}")
-        if conn:
+        print(f"ERROR CRÍTICO (init_db): Error al inicializar las tablas de la base de datos. Error: {e}")
+        # Si la conexión ya existe y hubo un error de DB, intentar un rollback.
+        # No se llama a conn.close() aquí, la conexión es cacheada.
+        if 'conn' in locals() and conn:
             conn.rollback()
-        st.error(f"Error inesperado durante la inicialización. Detalles: {e}")
+        st.error(f"¡Error crítico! Falló la inicialización de las tablas de la base de datos. Detalles: {e}")
         st.stop()
-    finally:
-        if conn: # Only try to close if conn was successfully assigned
-            conn.close()
-# 5. FUNCIONES DE CONSULTA
-@st.cache_data(ttl=3600)
+    except Exception as e:
+        print(f"ERROR INESPERADO (init_db): {e}")
+        # Idem para otros errores
+        if 'conn' in locals() and conn:
+            conn.rollback()
+        st.error(f"¡Error inesperado! durante la inicialización de la base de datos. Detalles: {e}")
+        st.stop()
+    # ¡IMPORTANTE!: No hay bloque 'finally' con conn.close(). La conexión es gestionada por @st.cache_resource.
+
+# 5. FUNCIONES DE CONSULTA (obtienen la conexión cacheada y NO la cierran)
+# @st.cache_data(ttl=3600) # Reconsiderar el caché para datos que cambian
 def obtener_inquilinos():
     """Retorna una lista de todos los inquilinos"""
-    conn = None
     try:
         conn = get_db_connection()
         df = pd.read_sql("SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", conn)
@@ -172,16 +164,12 @@ def obtener_inquilinos():
     except Exception as e:
         st.error(f"Error al obtener inquilinos: {e}")
         return [""]
-    finally:
-        if conn:
-            conn.close()
+    # No hay finally con conn.close() aquí
 
 def obtener_locales_por_inquilino(inquilino):
     """Retorna los locales asociados a un inquilino específico"""
     if not inquilino:
         return []
-    
-    conn = None
     try:
         conn = get_db_connection()
         df = pd.read_sql(
@@ -192,15 +180,12 @@ def obtener_locales_por_inquilino(inquilino):
     except Exception as e:
         st.error(f"Error al obtener locales: {e}")
         return []
-    finally:
-        if conn:
-            conn.close()
+    # No hay finally con conn.close() aquí
 
 def obtener_monto_alquiler_local(numero_local):
     """Retorna el monto de alquiler base de un local específico."""
     if not numero_local:
-        return 0.0 # Valor por defecto si no hay local seleccionado
-    conn = None
+        return 0.0
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -210,14 +195,11 @@ def obtener_monto_alquiler_local(numero_local):
     except Exception as e:
         st.error(f"Error al obtener el monto de alquiler del local: {e}")
         return 0.0
-    finally:
-        if conn:
-            conn.close()
+    # No hay finally con conn.close() aquí
 
-# 6. FUNCIONES PARA REGISTRAR PAGOS
+# 6. FUNCIONES PARA REGISTRAR PAGOS (obtienen la conexión cacheada y NO la cierran)
 def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
     """Registra un nuevo pago en la base de datos"""
-    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -227,18 +209,17 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
             VALUES (?, ?, ?, ?, ?, ?, ?)''',
             (local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones)
         )
-        conn.commit()
+        conn.commit() # Confirma la transacción
         return True
     except Exception as e:
         st.error(f"Error al registrar pago: {e}")
-        if conn:
+        # Si hubo un error y la conexión existe, intentar rollback.
+        if 'conn' in locals() and conn:
             conn.rollback()
         return False
-    finally:
-        if conn:
-            conn.close()
+    # No hay finally con conn.close() aquí
 
-# 7. INTERFAZ DE USUARIO - FORMULARIO
+# 7. INTERFAZ DE USUARIO - FORMULARIO (sin cambios en la lógica del formulario)
 def mostrar_formulario_pago():
     """Muestra el formulario para registrar nuevos pagos"""
     st.subheader("📝 Registrar Nuevo Pago")
@@ -247,51 +228,41 @@ def mostrar_formulario_pago():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Selector de inquilino
             selected_inquilino = st.selectbox(
                 "Seleccione Inquilino*",
                 options=obtener_inquilinos(),
                 index=0,
-                key="inquilino_selector" # Añadir key para mantener el estado
+                key="inquilino_selector"
             )
             
-            # Selector de local basado en el inquilino
             locales_disponibles = [""] + obtener_locales_por_inquilino(selected_inquilino)
             
-            # Intentar mantener el local previamente seleccionado si aún es válido
-            # Usamos st.session_state para mantener el valor del selectbox
             if 'selected_local_value' not in st.session_state:
                 st.session_state.selected_local_value = ""
 
             try:
                 current_local_index = locales_disponibles.index(st.session_state.selected_local_value)
             except ValueError:
-                current_local_index = 0 # Reiniciar si el local anterior ya no es válido para el inquilino
+                current_local_index = 0
 
             selected_local = st.selectbox(
                 "Seleccione Local*",
                 options=locales_disponibles,
                 index=current_local_index,
-                key="local_selector" # Añadir key para mantener el estado
+                key="local_selector"
             )
-            # Actualizar el valor del local seleccionado en el estado de la sesión
             st.session_state.selected_local_value = selected_local
 
-        # Obtener el monto de alquiler sugerido para el local seleccionado
         monto_sugerido = obtener_monto_alquiler_local(selected_local)
             
         with col2:
-            # Campos del formulario
             fecha_pago = st.date_input("Fecha de Pago*", value=date.today())
             mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="2023-01")
-            # Usar el monto sugerido como valor inicial
             monto = st.number_input("Monto* (USD)", min_value=0.0, value=monto_sugerido, step=1.0)
             estado = st.selectbox("Estado*", ["Pagado", "Parcial", "Pendiente"])
             observaciones = st.text_area("Observaciones")
         
-        # Botón de envío
         if st.form_submit_button("💾 Guardar Pago"):
-            # Validaciones
             if not all([selected_inquilino, selected_local, mes_abonado, monto > 0]):
                 st.error("Por favor complete todos los campos obligatorios (*)")
             elif not re.match(r"^\d{4}-\d{2}$", mes_abonado):
@@ -302,18 +273,13 @@ def mostrar_formulario_pago():
                     fecha_pago, mes_abonado, monto, estado, observaciones
                 ):
                     st.success("✅ Pago registrado exitosamente!")
-                    # Limpiar caches para que los historiales y selects se actualicen
-                    st.cache_data.clear()
-                    st.cache_resource.clear()
+                    st.cache_data.clear() # Limpia cachés de datos para refrescar tablas
                     sleep(2)
-                    st.experimental_rerun() # Recargar la página para refrescar el formulario y los historiales
+                    st.experimental_rerun()
 
-# 8. INTERFAZ DE USUARIO - HISTORIAL
+# 8. INTERFAZ DE USUARIO - HISTORIAL (obtiene la conexión cacheada y NO la cierra)
 def mostrar_historial_pagos():
     """Muestra el historial de pagos registrados"""
-    st.subheader("📜 Historial de Pagos")
-    
-    conn = None
     try:
         conn = get_db_connection()
         df = pd.read_sql("SELECT * FROM pagos ORDER BY fecha_pago DESC", conn)
@@ -324,38 +290,31 @@ def mostrar_historial_pagos():
             st.dataframe(df, use_container_width=True)
     except Exception as e:
         st.error(f"Error al cargar el historial: {e}")
-    finally:
-        if conn:
-            conn.close()
+    # No hay finally con conn.close() aquí
 
-# 9. FUNCIÓN PRINCIPAL
+# 9. FUNCIÓN PRINCIPAL (sin cambios)
 def main():
     """Función principal de la aplicación"""
-    # Configuración de la página
     st.set_page_config(
         page_title="Sistema de Pagos Arvelo",
         page_icon="💰",
         layout="wide"
     )
     
-    # Inicializar base de datos
-    init_db()
+    init_db() # Solo inicializa la estructura de la DB si es necesario
     
-    # Título principal
     st.title("💰 Sistema de Gestión de Pagos")
     
-    # Menú de navegación
     menu_option = st.sidebar.radio(
         "Menú Principal",
         ["Registrar Pago", "Historial de Pagos"]
     )
     
-    # Mostrar la sección correspondiente
     if menu_option == "Registrar Pago":
         mostrar_formulario_pago()
     elif menu_option == "Historial de Pagos":
         mostrar_historial_pagos()
 
-# 10. EJECUCIÓN DEL PROGRAMA
+# 10. EJECUCIÓN DEL PROGRAMA (sin cambios)
 if __name__ == "__main__":
     main()
