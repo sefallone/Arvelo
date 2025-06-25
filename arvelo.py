@@ -232,18 +232,18 @@ def mostrar_formulario_pago():
                 index=0 # Por defecto, selecciona la opción vacía
             )
             
-            # --- INICIO DE DEPURACIÓN ---
-            st.write(f"Inquilino seleccionado (DEBUG): '{inquilino_seleccionado}'")
-            # --- FIN DE DEPURACIÓN ---
+            # --- INICIO DE DEPURACIÓN EN FORMULARIO ---
+            st.info(f"DEBUG: Inquilino seleccionado: '{inquilino_seleccionado}'")
+            # --- FIN DE DEPURACIÓN EN FORMULARIO ---
 
             # Obtener locales del inquilino seleccionado
             locales_del_inquilino = []
             if inquilino_seleccionado:
                 locales_del_inquilino = obtener_locales_por_inquilino(inquilino_seleccionado)
             
-            # --- INICIO DE DEPURACIÓN ---
-            st.write(f"Locales para '{inquilino_seleccionado}' (DEBUG): {locales_del_inquilino}")
-            # --- FIN DE DEPURACIÓN ---
+            # --- INICIO DE DEPURACIÓN EN FORMULARIO ---
+            st.info(f"DEBUG: Locales encontrados para '{inquilino_seleccionado}': {locales_del_inquilino}")
+            # --- FIN DE DEPURACIÓN EN FORMULARIO ---
 
             # Selector de local
             local_seleccionado = st.selectbox(
@@ -272,7 +272,7 @@ def mostrar_formulario_pago():
             mes_abonado = st.text_input(
                 "Mes Abonado* (YYYY-MM)",
                 placeholder="Ej: 2023-01",
-                help="Formato requerido: YYYY-MM (ej. 2023-01 para Enero 2023)"
+                help="Formato requerido: असाल-MM (ej. 2023-01 para Enero 2023)"
             )
             
             monto = st.number_input(
@@ -302,7 +302,7 @@ def mostrar_formulario_pago():
             elif not mes_abonado:
                 st.error("Por favor, introduzca el mes abonado.")
             elif not re.match(r"^\d{4}-\d{2}$", mes_abonado):
-                st.error("El formato del 'Mes Abonado' debe ser YYYY-MM (ej. 2023-01).")
+                st.error("El formato del 'Mes Abonado' debe ser असाल-MM (ej. 2023-01).")
             elif monto <= 0:
                 st.error("El monto debe ser mayor que cero.")
             else:
@@ -333,6 +333,10 @@ def mostrar_historial_pagos():
 # 8. FUNCIÓN PRINCIPAL
 def main():
     """Configuración principal de la aplicación."""
+    # --- MENSAJE DE DEPURACIÓN INICIAL ---
+    st.info("DEBUG: Aplicación Streamlit iniciada o recargada.")
+    # --- FIN MENSAJE DE DEPURACIÓN INICIAL ---
+
     st.set_page_config(
         page_title="Sistema de Pagos Arvelo",
         page_icon="💰",
