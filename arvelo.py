@@ -10,14 +10,14 @@ import shutil
 def get_db_connection():
     """Crea y retorna una conexión a la base de datos SQLite"""
     temp_dir = tempfile.gettempdir()
-    db_path = os.path.join(temp_dir, "pagos_arvelo_final.db")
+    db_path = os.path.join(temp_dir, "pagos_arvelo_final_v2.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
-# 2. DATOS INICIALES (VERIFICADOS SIN DUPLICADOS)
+# 2. DATOS INICIALES (COMPLETOS Y VERIFICADOS)
 def cargar_datos_iniciales():
-    """Retorna datos iniciales garantizando que los números de local sean únicos"""
+    """Retorna datos iniciales con todos los locales correctamente asociados"""
     return [
         ('LOCAL A', 'MONICA JANET VARGAS G.', 'PB', 'LENCERIA', 350.0, 'MONICA JANET VARGAS G.'),
         ('LOCAL B', 'OSCAR DUQUE ECHEVERRIA', 'PB', 'LENCERIA', 350.0, 'OSCAR DUQUE ECHEVERRI'),
