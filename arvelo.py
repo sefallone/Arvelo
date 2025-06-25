@@ -7,22 +7,31 @@ import os
 import re
 from time import sleep
 
-# 2. CONEXIÓN A LA BASE DE DATOS (mejorado con manejo de contexto)
+# 2. CONEXIÓN A LA BASE DE DATOS
 @st.cache_resource
 def get_db_connection():
-    """Establece y retorna una conexión a la base de datos SQLite."""
+    """Establece y retorna una conexión a la base de datos SQLite"""
     try:
         db_path = "pagos_arvelo.db"
-        conn = sqlite3.connect(db_path)
+        
+        # Verificar permisos en el directorio
+        if not os.access(os.path.dirname(db_path) if os.path.dirname(db_path) else '.', os.W_OK):
+            st.error("No hay permisos de escritura en el directorio para la base de datos")
+            st.stop()
+        
+        conn = sqlite3.connect(db_path, isolation_level=None)
         conn.row_factory = sqlite3.Row
-        # Habilitar foreign key constraints
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
         return conn
     except sqlite3.Error as e:
-        st.error(f"¡Error crítico! No se pudo conectar/crear la base de datos. Detalles: {e}")
+        st.error(f"Error de conexión a la base de datos: {str(e)}")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error inesperado al conectar con la base de datos: {str(e)}")
         st.stop()
 
-# 3. FUNCIONES DE VALIDACIÓN (nuevas)
+# 3. FUNCIONES DE VALIDACIÓN
 def validar_mes_abonado(mes):
     """Valida que el formato sea YYYY-MM y que sea un mes válido"""
     if not re.match(r"^\d{4}-(0[1-9]|1[0-2])$", mes):
@@ -34,13 +43,13 @@ def validar_mes_abonado(mes):
         return False
 
 def validar_monto(monto):
-    """Valida que el monto sea positivo y tenga formato correcto"""
+    """Valida que el monto sea positivo"""
     try:
         return float(monto) > 0
     except (ValueError, TypeError):
         return False
 
-# 4. DATOS INICIALES (sin cambios)
+# 4. DATOS INICIALES
 def cargar_datos_iniciales():
     """Retorna los datos iniciales para poblar la base de datos"""
     return [
@@ -102,15 +111,16 @@ def cargar_datos_iniciales():
 
     ]
 
-# 5. INICIALIZACIÓN DE LA BASE DE DATOS (mejorado)
+# 5. INICIALIZACIÓN DE LA BASE DE DATOS
 def init_db():
-    """Inicializa la estructura de la base de datos con mejor manejo de errores"""
+    """Inicializa la estructura de la base de datos"""
+    conn = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        conn.execute("BEGIN")
         
-        # Crear tabla de locales con constraints mejorados
-        cursor.execute('''
+        # Tabla de locales
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS locales (
                 numero_local TEXT PRIMARY KEY,
                 inquilino TEXT NOT NULL,
@@ -121,8 +131,8 @@ def init_db():
             )
         ''')
         
-        # Crear tabla de pagos con constraints mejorados
-        cursor.execute('''
+        # Tabla de pagos
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS pagos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 numero_local TEXT NOT NULL,
@@ -136,47 +146,46 @@ def init_db():
             )
         ''')
         
-        # Crear índice para mejorar búsquedas
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_pagos_inquilino ON pagos(inquilino)
-        ''')
+        # Índices
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_pagos_inquilino ON pagos(inquilino)')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_pagos_mes ON pagos(mes_abonado)')
         
-        cursor.execute("SELECT COUNT(*) FROM locales")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany(
-                '''INSERT INTO locales 
+        # Insertar datos iniciales si la tabla está vacía
+        if conn.execute("SELECT COUNT(*) FROM locales").fetchone()[0] == 0:
+            conn.executemany('''
+                INSERT INTO locales 
                 (numero_local, inquilino, planta, ramo_negocio, monto_alquiler, contrato)
-                VALUES (?, ?, ?, ?, ?, ?)''',
-                cargar_datos_iniciales()
-            )
-            conn.commit()
-            
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', cargar_datos_iniciales())
+        
+        conn.execute("COMMIT")
+        
     except sqlite3.Error as e:
-        st.error(f"¡Error crítico! Falló la inicialización de la base de datos. Detalles: {e}")
-        if 'conn' in locals() and conn:
-            conn.rollback()
+        st.error(f"Error al inicializar la base de datos: {str(e)}")
+        if conn:
+            conn.execute("ROLLBACK")
         st.stop()
     except Exception as e:
-        st.error(f"¡Error inesperado! durante la inicialización. Detalles: {e}")
-        if 'conn' in locals() and conn:
-            conn.rollback()
+        st.error(f"Error inesperado: {str(e)}")
+        if conn:
+            conn.execute("ROLLBACK")
         st.stop()
 
-# 6. FUNCIONES DE CONSULTA (mejoradas)
+# 6. FUNCIONES DE CONSULTA
 @st.cache_data(ttl=600)
 def obtener_inquilinos():
-    """Retorna una lista de todos los inquilinos con caché de 10 minutos"""
+    """Retorna lista de inquilinos"""
     try:
         conn = get_db_connection()
         df = pd.read_sql("SELECT DISTINCT inquilino FROM locales ORDER BY inquilino", conn)
         return [""] + df['inquilino'].tolist()
     except Exception as e:
-        st.error(f"Error al obtener inquilinos: {e}")
+        st.error(f"Error al obtener inquilinos: {str(e)}")
         return [""]
 
 @st.cache_data(ttl=600)
 def obtener_locales_por_inquilino(inquilino):
-    """Retorna los locales asociados a un inquilino con caché"""
+    """Retorna locales asociados a un inquilino"""
     if not inquilino:
         return []
     try:
@@ -187,11 +196,11 @@ def obtener_locales_por_inquilino(inquilino):
         )
         return df.to_dict('records')
     except Exception as e:
-        st.error(f"Error al obtener locales: {e}")
+        st.error(f"Error al obtener locales: {str(e)}")
         return []
 
 def obtener_monto_alquiler_local(numero_local):
-    """Retorna el monto de alquiler base de un local específico."""
+    """Retorna monto de alquiler de un local"""
     if not numero_local:
         return 0.0
     try:
@@ -201,14 +210,15 @@ def obtener_monto_alquiler_local(numero_local):
         result = cursor.fetchone()
         return result['monto_alquiler'] if result else 0.0
     except Exception as e:
-        st.error(f"Error al obtener el monto de alquiler: {e}")
+        st.error(f"Error al obtener monto: {str(e)}")
         return 0.0
 
-# 7. FUNCIONES PARA REGISTRAR PAGOS (mejoradas)
+# 7. FUNCIONES PARA REGISTRAR PAGOS
 def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones):
-    """Registra un nuevo pago con validaciones mejoradas"""
+    """Registra un nuevo pago"""
+    conn = None
     try:
-        # Validaciones mejoradas
+        # Validaciones
         if not all([local, inquilino, mes_abonado, fecha_pago]):
             raise ValueError("Todos los campos obligatorios deben estar completos")
             
@@ -219,57 +229,55 @@ def registrar_pago(local, inquilino, fecha_pago, mes_abonado, monto, estado, obs
             raise ValueError("El monto debe ser un número positivo")
             
         conn = get_db_connection()
-        cursor = conn.cursor()
+        conn.execute("BEGIN")
         
         # Verificar que el local existe
-        cursor.execute("SELECT 1 FROM locales WHERE numero_local = ?", (local,))
-        if not cursor.fetchone():
-            raise ValueError(f"El local {local} no existe en la base de datos")
+        if not conn.execute("SELECT 1 FROM locales WHERE numero_local = ?", (local,)).fetchone():
+            raise ValueError(f"El local {local} no existe")
             
-        # Insertar el pago
-        cursor.execute(
-            '''INSERT INTO pagos 
+        # Insertar pago
+        conn.execute('''
+            INSERT INTO pagos 
             (numero_local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones)
-            VALUES (?, ?, ?, ?, ?, ?, ?)''',
-            (local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones)
-        )
-        conn.commit()
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (local, inquilino, fecha_pago, mes_abonado, monto, estado, observaciones))
+        
+        conn.execute("COMMIT")
         return True
         
     except ValueError as ve:
         st.error(str(ve))
         return False
     except sqlite3.Error as se:
-        st.error(f"Error de base de datos: {se}")
-        if 'conn' in locals() and conn:
-            conn.rollback()
+        st.error(f"Error de base de datos: {str(se)}")
+        if conn:
+            conn.execute("ROLLBACK")
         return False
     except Exception as e:
-        st.error(f"Error inesperado: {e}")
-        if 'conn' in locals() and conn:
-            conn.rollback()
+        st.error(f"Error inesperado: {str(e)}")
+        if conn:
+            conn.execute("ROLLBACK")
         return False
 
-# 8. INTERFAZ DE USUARIO - FORMULARIO (mejorado)
+# 8. INTERFAZ DE USUARIO - FORMULARIO
 def mostrar_formulario_pago():
-    """Muestra el formulario mejorado para registrar nuevos pagos"""
+    """Muestra formulario para registrar pagos"""
     st.subheader("📝 Registrar Nuevo Pago")
     
     with st.form(key='form_pago', clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            # Selectbox con búsqueda mejorada
+            # Selector de inquilino
             inquilinos = obtener_inquilinos()
             selected_inquilino = st.selectbox(
                 "Seleccione Inquilino*",
                 options=inquilinos,
                 index=0,
-                key="inquilino_selector",
-                help="Seleccione o escriba para buscar un inquilino"
+                help="Seleccione o escriba para buscar"
             )
             
-            # Mostrar locales con información adicional
+            # Selector de local
             locales_info = obtener_locales_por_inquilino(selected_inquilino)
             locales_opciones = {f"{loc['numero_local']} (${loc['monto_alquiler']})": loc['numero_local'] for loc in locales_info}
             
@@ -277,19 +285,15 @@ def mostrar_formulario_pago():
                 "Seleccione Local*",
                 options=[""] + list(locales_opciones.keys()),
                 index=0,
-                key="local_selector",
-                help="Seleccione un local para ver el monto sugerido"
+                help="Seleccione un local"
             )
             
-            # Obtener el número de local real (sin el monto en el texto)
             local_real = locales_opciones.get(selected_local, "")
             
         with col2:
             fecha_pago = st.date_input("Fecha de Pago*", value=date.today())
-            mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="2023-01", 
-                                       help="Formato: AAAA-MM (ej. 2023-05)")
+            mes_abonado = st.text_input("Mes Abonado* (YYYY-MM)", placeholder="2023-01")
             
-            # Mostrar monto sugerido y permitir edición
             monto_sugerido = obtener_monto_alquiler_local(local_real)
             monto = st.number_input(
                 "Monto* (USD)", 
@@ -300,12 +304,11 @@ def mostrar_formulario_pago():
             )
             
             estado = st.selectbox("Estado*", ["Pagado", "Parcial", "Pendiente"])
-            observaciones = st.text_area("Observaciones", placeholder="Detalles adicionales del pago")
+            observaciones = st.text_area("Observaciones")
         
-        # Botón de submit con confirmación
         if st.form_submit_button("💾 Guardar Pago"):
             if not all([selected_inquilino, local_real, mes_abonado, monto > 0]):
-                st.error("❌ Por favor complete todos los campos obligatorios (*)")
+                st.error("❌ Complete todos los campos obligatorios (*)")
             elif not validar_mes_abonado(mes_abonado):
                 st.error("❌ Formato de mes inválido. Use YYYY-MM (ej. 2023-01)")
             else:
@@ -319,12 +322,12 @@ def mostrar_formulario_pago():
                         sleep(1.5)
                         st.experimental_rerun()
 
-# 9. INTERFAZ DE USUARIO - HISTORIAL (mejorado con filtros)
+# 9. INTERFAZ DE USUARIO - HISTORIAL
 def mostrar_historial_pagos():
-    """Muestra el historial de pagos con filtros avanzados"""
+    """Muestra historial de pagos con filtros"""
     st.subheader("📋 Historial de Pagos")
     
-    # Filtros avanzados
+    # Filtros
     with st.expander("🔍 Filtros Avanzados", expanded=True):
         col1, col2, col3 = st.columns(3)
         
@@ -337,8 +340,7 @@ def mostrar_historial_pagos():
         with col2:
             filtro_mes = st.text_input(
                 "Por Mes (YYYY-MM)",
-                placeholder="2023-01",
-                help="Dejar vacío para todos los meses"
+                placeholder="2023-01"
             )
             
         with col3:
@@ -347,7 +349,7 @@ def mostrar_historial_pagos():
                 options=["Todos", "Pagado", "Parcial", "Pendiente"]
             )
     
-    # Construir consulta SQL dinámica
+    # Consulta SQL
     query = """
         SELECT 
             p.id,
@@ -387,11 +389,10 @@ def mostrar_historial_pagos():
         if df.empty:
             st.info("No hay pagos registrados que coincidan con los filtros.")
         else:
-            # Formatear columnas
+            # Formatear dataframe
             df['fecha_pago'] = pd.to_datetime(df['fecha_pago']).dt.date
             df['monto'] = df['monto'].apply(lambda x: f"${x:,.2f}")
             
-            # Mostrar dataframe con estilo
             st.dataframe(
                 df,
                 use_container_width=True,
@@ -401,7 +402,7 @@ def mostrar_historial_pagos():
                 hide_index=True
             )
             
-            # Resumen estadístico
+            # Resumen
             st.subheader("📊 Resumen")
             total_pagos = pd.to_numeric(df['monto'].str.replace('$', '').str.replace(',', '')).sum()
             col1, col2, col3 = st.columns(3)
@@ -416,49 +417,56 @@ def mostrar_historial_pagos():
                 st.metric("Promedio por Pago", f"${total_pagos/len(df):,.2f}" if len(df) > 0 else "$0.00")
                 
     except Exception as e:
-        st.error(f"Error al cargar el historial: {e}")
+        st.error(f"Error al cargar el historial: {str(e)}")
 
-# 10. FUNCIÓN PRINCIPAL (mejorada)
+# 10. FUNCIÓN PRINCIPAL
 def main():
-    """Función principal con layout mejorado"""
-    # Configuración de página mejorada
-    st.set_page_config(
-        page_title="Sistema de Pagos Arvelo",
-        page_icon="💰",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-    
-    # Inicialización de la base de datos
-    init_db()
-    
-    # Sidebar con más opciones
-    with st.sidebar:
-        st.title("💰 Gestión de Pagos")
-        menu_option = st.radio(
-            "Menú Principal",
-            ["Registrar Pago", "Historial de Pagos"],
-            index=0
+    """Función principal de la aplicación"""
+    try:
+        # Configuración de página
+        st.set_page_config(
+            page_title="Sistema de Pagos Arvelo",
+            page_icon="💰",
+            layout="wide",
+            initial_sidebar_state="expanded"
         )
         
-        st.markdown("---")
-        st.markdown("**Información:**")
-        st.markdown("- ℹ️ Complete todos los campos obligatorios (*)")
-        st.markdown("- 📅 Use formato YYYY-MM para los meses")
+        # Inicializar base de datos
+        init_db()
         
-        if st.button("🔄 Limpiar caché"):
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            st.success("¡Caché limpiado!")
-            st.experimental_rerun()
-    
-    # Contenido principal
-    st.title("Sistema de Gestión de Pagos Comerciales")
-    
-    if menu_option == "Registrar Pago":
-        mostrar_formulario_pago()
-    elif menu_option == "Historial de Pagos":
-        mostrar_historial_pagos()
+        # Sidebar
+        with st.sidebar:
+            st.title("💰 Gestión de Pagos")
+            menu_option = st.radio(
+                "Menú Principal",
+                ["Registrar Pago", "Historial de Pagos"],
+                index=0
+            )
+            
+            st.markdown("---")
+            st.markdown("**Información:**")
+            st.markdown("- Complete todos los campos obligatorios (*)")
+            st.markdown("- Use formato YYYY-MM para los meses")
+            
+            if st.button("🔄 Limpiar caché"):
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.success("¡Caché limpiado!")
+                sleep(1)
+                st.experimental_rerun()
+        
+        # Contenido principal
+        st.title("Sistema de Gestión de Pagos Comerciales")
+        
+        if menu_option == "Registrar Pago":
+            mostrar_formulario_pago()
+        elif menu_option == "Historial de Pagos":
+            mostrar_historial_pagos()
+            
+    except Exception as e:
+        st.error(f"Error crítico en la aplicación: {str(e)}")
+        st.stop()
 
+# EJECUCIÓN
 if __name__ == "__main__":
     main()
